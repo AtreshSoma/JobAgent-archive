@@ -91,14 +91,14 @@ export function classifyResumeLine(line, { beforeFirstHeading, index }) {
   return 'item';
 }
 
-/** "AMULYA R KODUKULA" -> "Amulya R Kodukula"; a name typed in mixed case is left as written. */
+/** "JORDAN A RIVERA" -> "Jordan A Rivera"; a name typed in mixed case is left as written. */
 export function displayName(name) {
   const text = String(name ?? '').replace(/\s+/g, ' ').trim();
   if (!text || /[a-z]/.test(text)) return text;
   return text.toLowerCase().replace(/(^|[\s'-])([a-z])/g, (_, lead, ch) => lead + ch.toUpperCase());
 }
 
-/** Two letters: first and last name ("Amulya R Kodukula" -> "AK"). */
+/** Two letters: first and last name ("Jordan A Rivera" -> "JR"). */
 export function initials(name) {
   const words = displayName(name).split(' ').filter((w) => /[A-Za-z]/.test(w));
   if (!words.length) return '';

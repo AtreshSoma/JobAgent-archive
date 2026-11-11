@@ -57,7 +57,7 @@ export const CHANGELOG = Object.freeze([
         'Buttons in notifications, such as Undo and Switch back, now work while a window is open.',
         'Switching people no longer re-scores the other person\'s jobs, so their scores, shortlists and applications stay exactly as they left them.',
         'Uploading someone else\'s resume as your master resume now asks first, and offers to add them as a new profile instead.',
-        'Adding a profile for someone who already has one (for example "Amulya Kodukula" and "Amulya R Kodukula") now offers their existing profile instead of creating a second one.',
+        'Adding a profile for someone who already has one (for example "Jordan Rivera" and "Jordan A Rivera") now offers their existing profile instead of creating a second one.',
       ],
     },
   },

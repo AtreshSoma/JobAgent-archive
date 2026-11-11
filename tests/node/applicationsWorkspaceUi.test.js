@@ -10,7 +10,8 @@ import { readFileSync } from 'node:fs';
 import { openDatabase } from '../../src/logging/db.js';
 import { BOARD_VIEWS, listBoardJobs } from '../../src/dashboard/data.js';
 
-const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
+// Windows checkouts get CRLF (.gitattributes text=auto); the assertions below are written against LF.
+const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 const html = read('../../src/dashboard/public/index.html');
 const css = read('../../src/dashboard/public/assets/css/app.css');
 const js = (f) => read(`../../src/dashboard/public/assets/js/${f}`);

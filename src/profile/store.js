@@ -109,8 +109,8 @@ export function listProfiles(root) {
       profiles.push({
         id: profile.id,
         label: profile.label,
-        // The person and their headline, so a switcher can show "Amulya R
-        // Kodukula · Senior Regulatory CMC Specialist" instead of three
+        // The person and their headline, so a switcher can show "Jordan A
+        // Rivera · Senior Data Engineer" instead of three
         // identical internal labels.
         name: profile.identity.fullName,
         // `updatedAt` is restamped every time a profile is normalised, so it
@@ -360,8 +360,8 @@ export function updatePersonProfile(root, id, fields) {
 
 /**
  * A saved profile for the SAME person, by first and last name — ignoring case,
- * spacing and middle names or initials ("Amulya Kodukula" is "AMULYA R
- * KODUKULA"). Exact-id reuse missed exactly that pair, so one person ended up
+ * spacing and middle names or initials ("Jordan Rivera" is "JORDAN A
+ * RIVERA"). Exact-id reuse missed exactly that pair, so one person ended up
  * with two profiles and two separate job lists.
  *
  * @returns {{ id: string, name: string } | null}
