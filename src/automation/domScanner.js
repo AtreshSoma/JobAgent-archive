@@ -34,6 +34,54 @@ function collectFields() {
     return rect.width > 0 && rect.height > 0;
   };
 
+  const textOf = (node) => (node?.textContent || '').replace(/\s+/g, ' ').trim();
+
+  // A NAME THAT NAMES NOTHING: a widget's placeholder or role word used as its
+  // accessible name. Rippling labels every dropdown aria-label="Select" and
+  // its location box aria-label="textbox"; read as labels they matched no
+  // answer, and the person was asked to answer "Search" and "textbox"
+  // (2026-11-12, Orion180).
+  const GENERIC_NAME = /^(?:-+\s*)?(?:please\s+)?(?:select|choose|pick|search|textbox|text\s*box|text\s*field|input|combobox|combo\s*box|dropdown|drop-down|type\s+here|type\s+to\s+search|enter\s+(?:a\s+)?(?:value|text))(?:\s+(?:an?\s+)?(?:option|one|answer|value|item|here))?\s*(?:\.{2,}|…)?\s*-*$/i;
+  const isGeneric = (text) => !String(text || '').trim() || GENERIC_NAME.test(String(text).trim());
+  // A form's internal field key ("z0v_CCXsxi", "6WjYMs0Dp") is not a label.
+  const looksGenerated = (name) => {
+    const n = String(name || '').trim();
+    if (!n) return true;
+    return (/\d/.test(n) && /[a-z]/.test(n) && /[A-Z]/.test(n)) || /[a-z][A-Z].*[a-z][A-Z]/.test(n)
+      || /^[0-9a-f-]{16,}$/i.test(n);
+  };
+  const FORM_CONTROL = 'input:not([type="hidden"]), select, textarea, [role="combobox"], [role="radiogroup"], [role="listbox"], [role="radio"], [role="checkbox"]';
+  const controlsIn = (node) => {
+    if (!node || node.nodeType !== 1) return 0;
+    return (node.matches(FORM_CONTROL) ? 1 : 0) + node.querySelectorAll(FORM_CONTROL).length;
+  };
+  const refText = (ids) => String(ids || '').split(/\s+/).filter(Boolean)
+    .map((id) => textOf(document.getElementById(id))).filter(Boolean).join(' ').trim();
+
+  // THE QUESTION PRINTED ABOVE A CONTROL that nothing associates with it.
+  // Rippling's custom questions are a <p> in the block before the field, with
+  // no <label for>, no aria-labelledby: the input's only "name" was its random
+  // field key, so "What is your salary requirement?" went unanswered although
+  // a salary answer was saved. Walks up while the ancestor holds ONLY this
+  // control (so a neighbour's label is never borrowed) and takes the text of
+  // the block right before it, when that block holds no control itself.
+  const questionBefore = (el, maxLen = 400) => {
+    let box = el;
+    for (let depth = 0; box && box.parentElement && depth < 8; depth += 1) {
+      const prev = box.previousElementSibling;
+      if (prev && controlsIn(prev) === 0) {
+        const t = textOf(prev);
+        if (t) return t.length <= maxLen ? t : null;
+      } else if (prev) {
+        return null; // the block before is another field
+      }
+      const up = box.parentElement;
+      if (!up || up.tagName === 'FORM' || up === document.body || controlsIn(up) > controlsIn(el)) return null;
+      box = up;
+    }
+    return null;
+  };
+
   // Best-effort human label for a control.
   const labelFor = (el) => {
     // 1. <label for="id">
@@ -44,16 +92,47 @@ function collectFields() {
     // 2. Wrapping <label>
     const wrap = el.closest('label');
     if (wrap && wrap.textContent.trim()) return wrap.textContent.trim();
-    // 3. aria-label / aria-labelledby
-    if (el.getAttribute('aria-label')) return el.getAttribute('aria-label').trim();
-    const labelledby = el.getAttribute('aria-labelledby');
-    if (labelledby) {
-      const ref = document.getElementById(labelledby);
-      if (ref && ref.textContent.trim()) return ref.textContent.trim();
+    // 3. aria-labelledby (every id it names), then a MEANINGFUL aria-label.
+    //    labelledby wins, as in the accessible-name algorithm: Rippling's
+    //    location box carries both, and "textbox" is the wrong one.
+    const byText = refText(el.getAttribute('aria-labelledby'));
+    if (byText && !isGeneric(byText)) return byText;
+    const aria = (el.getAttribute('aria-label') || '').trim();
+    if (aria && !isGeneric(aria)) return aria;
+    // 4. The question printed just before the control.
+    const question = questionBefore(el);
+    if (question) return question;
+    // 5. A placeholder, a readable name, and only then a generic word.
+    const placeholder = (el.getAttribute('placeholder') || '').trim();
+    if (placeholder && !isGeneric(placeholder)) return placeholder;
+    if (el.name && !looksGenerated(el.name)) return el.name.trim();
+    return aria || placeholder || '';
+  };
+
+  // What a custom (non-<select>) dropdown is showing, or '' while it still
+  // shows its placeholder ("Select", "Select...").
+  const shownChoice = (el) => {
+    const text = textOf(el);
+    if (!text || isGeneric(text)) return '';
+    if (text === (el.getAttribute('aria-label') || '').trim()) return '';
+    return text;
+  };
+  // Does the control already hold an answer (typed by a person, restored by
+  // the site, or filled from a parsed resume)? Reported as a flag only: the
+  // value itself never leaves the page.
+  const holdsValue = (el) => {
+    const tag = el.tagName;
+    if (tag === 'SELECT') {
+      const opt = el.selectedOptions?.[0];
+      return Boolean(opt && String(opt.value || '').trim() && !isGeneric(textOf(opt)));
     }
-    // 4. placeholder / name
-    if (el.getAttribute('placeholder')) return el.getAttribute('placeholder').trim();
-    return (el.name || '').trim();
+    if (tag === 'INPUT' || tag === 'TEXTAREA') {
+      if (String(el.value || '').trim()) return true;
+      const box = el.parentElement?.closest('[class*="select__control"], [class*="-control"], [class*="container"]') ?? el.parentElement;
+      const committed = box?.querySelector?.('[class*="single-value"], [class*="singleValue"], [class*="multi-value"], [class*="multiValue"]');
+      return Boolean(committed && textOf(committed));
+    }
+    return Boolean(shownChoice(el));
   };
 
   // Stable, unique-ish selector for a control. A control with neither id nor
@@ -94,8 +173,6 @@ function collectFields() {
     || el.getAttribute('aria-required') === 'true'
     || REQUIRED_MARK.test(String(label || ''));
   const cleanLabel = (label) => String(label || '').replace(/\s*(?:\*|\(\s*required\s*\))\s*$/i, '').trim();
-
-  const textOf = (node) => (node?.textContent || '').replace(/\s+/g, ' ').trim();
   // The QUESTION a radio or checkbox group answers. A group's own options are
   // labelled "Yes" / "No" / "Day"; the question is the fieldset's legend, the
   // radiogroup's accessible name, or the text just before the group. Reading
@@ -112,19 +189,45 @@ function collectFields() {
       if (ref && textOf(ref)) return textOf(ref);
     }
     // Nearest ancestor that holds the whole group: the text before it.
+    // Consent questions run long (Rippling's SMS opt-in is ~330 characters
+    // and sits 6 levels above its inputs), hence the depth and length.
     const name = el.name;
     let box = el.parentElement;
-    for (let depth = 0; box && depth < 5; depth += 1, box = box.parentElement) {
+    for (let depth = 0; box && depth < 8 && box.tagName !== 'FORM'; depth += 1, box = box.parentElement) {
       const all = name ? box.querySelectorAll(`input[name="${cssEscape(name)}"]`).length : 1;
       const mine = name ? document.querySelectorAll(`input[name="${cssEscape(name)}"]`).length : 1;
       if (all < mine) continue;
       const prev = box.previousElementSibling;
       const t = textOf(prev);
-      if (t && t.length <= 300 && !optionLabels.includes(t)) return t;
+      if (t && t.length <= 600 && !optionLabels.includes(t) && controlsIn(prev) === 0) return t;
       const own = box.getAttribute('aria-label');
       if (own) return own.trim();
     }
     return null;
+  };
+
+  // A radio/checkbox OPTION's own text. A styled option hides its input inside
+  // a role="radio" box whose text is the option ("Yes - I consent to ..."), so
+  // the input has no <label>; reading the input's name instead turned both
+  // options into "sms_opt_in".
+  const optionLabelFor = (el) => {
+    if (el.id) {
+      const lab = document.querySelector(`label[for="${cssEscape(el.id)}"]`);
+      if (lab && textOf(lab)) return textOf(lab);
+    }
+    const wrap = el.closest('label');
+    if (wrap && textOf(wrap)) return textOf(wrap);
+    const byText = refText(el.getAttribute('aria-labelledby'));
+    if (byText) return byText;
+    if ((el.getAttribute('aria-label') || '').trim()) return el.getAttribute('aria-label').trim();
+    const box = el.closest('[role="radio"], [role="checkbox"], [role="option"]');
+    if (box) return refText(box.getAttribute('aria-labelledby')) || (box.getAttribute('aria-label') || '').trim() || textOf(box);
+    return '';
+  };
+  // The visible box a styled radio/checkbox draws for its hidden input.
+  const styledBoxOf = (el) => {
+    const box = el.closest('[role="radio"], [role="checkbox"]');
+    return box && box !== el && isVisible(box) ? box : null;
   };
 
   // Controls that are on the page but are NOT the application: a site search
@@ -154,15 +257,18 @@ function collectFields() {
     // Recognising only <select> left the real page unchanged (2026-11-12, retry still blocked).
     const role = (el.getAttribute('role') || '').toLowerCase();
     const isSelect = el.tagName === 'SELECT';
-    const isCombo = el.tagName === 'INPUT' && (role === 'combobox'
+    const isFormTag = ['INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName);
+    const isCombo = (el.tagName === 'INPUT' && (role === 'combobox'
       || (el.getAttribute('aria-haspopup') || '').toLowerCase() === 'listbox'
-      || ['list', 'both'].includes((el.getAttribute('aria-autocomplete') || '').toLowerCase()));
+      || ['list', 'both'].includes((el.getAttribute('aria-autocomplete') || '').toLowerCase())))
+      // a custom <div role="combobox"> / <button aria-haspopup="listbox"> picker
+      || (!isFormTag && (role === 'combobox' || (el.getAttribute('aria-haspopup') || '').toLowerCase() === 'listbox'));
     if (!isSelect && !isCombo) return false;
     const text = String(label || '').trim();
     if (UI_LANGUAGE.test(text) || UI_LANGUAGE.test(el.getAttribute('aria-label') || '')) return true;
     if (!BARE_LANGUAGE.test(text) && !/^(?:lang|locale|language)$/i.test(el.name || el.id || '')) return false;
     if (isCombo) {
-      const value = String(el.value || '').trim();
+      const value = String(isFormTag ? el.value || '' : textOf(el)).trim();
       return LANGUAGE_VALUE.test(value) || LANGUAGE_OPTION.test(value) || LOCALE_CODE.test(value);
     }
     const opts = Array.from(el.options || []);
@@ -175,6 +281,14 @@ function collectFields() {
     const hint = [el.name, el.id, el.getAttribute('placeholder'), el.getAttribute('aria-label')].join(' ');
     if (isLanguagePicker(el, label)) return 'language-picker';
     if (type === 'search' || el.closest('[role="search"], search')) return 'search';
+    // A custom dropdown in the site's header, navigation or footer (sort,
+    // region, language, account menu) is page chrome. Counted as a field it
+    // would make a job description look like a form, and "Apply now" would
+    // never be taken as the way in.
+    if (!['INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName)
+      && el.closest('header, nav, footer, [role="banner"], [role="navigation"], [role="contentinfo"], [role="menubar"], [role="toolbar"]')) {
+      return 'page-chrome';
+    }
     // Bot traps: a text box no person can see or reach (Oracle Recruiting's
     // "honey-pot" sits in a zero-height, overflow-hidden row, aria-hidden and
     // tabindex=-1). Typing into one flags the application as a bot.
@@ -205,11 +319,32 @@ function collectFields() {
 
   const out = [];
   const seenRadioGroups = new Set();
-  const controls = Array.from(document.querySelectorAll('input, textarea, select'));
+  // Custom dropdowns are scanned in document order with everything else.
+  // Rippling (and any headless-UI form) renders its choice questions as
+  // <div role="combobox"> with no <select> and no <input> behind them: all
+  // seven of Orion180's Yes/No questions, gender, ethnicity and veteran status
+  // were invisible to the scanner, never filled, never reported (2026-11-12).
+  const CUSTOM_SELECT = '[role="combobox"]:not(input):not(select):not(textarea), button[aria-haspopup="listbox"]';
+  const controls = Array.from(document.querySelectorAll(`input, textarea, select, ${CUSTOM_SELECT}`));
 
   for (const el of controls) {
     if (out.length >= MAX_FIELDS) break;
     const tag = el.tagName.toLowerCase();
+
+    if (!['input', 'textarea', 'select'].includes(tag)) {
+      // An ARIA 1.1 combobox WRAPS its text input; the input is the field.
+      if (el.querySelector('input:not([type="hidden"]), select, textarea')) continue;
+      if (!isVisible(el) || el.getAttribute('aria-disabled') === 'true' || el.disabled) continue;
+      const sel = selectorFor(el);
+      const label = labelFor(el);
+      out.push({
+        kind: 'combobox', type: 'custom-select', typeable: false, selector: sel,
+        label: cleanLabel(label), name: '', required: isRequired(el, label), options: [],
+        hasValue: holdsValue(el),
+      });
+      continue;
+    }
+
     const rawType = (el.getAttribute('type') || tag).toLowerCase();
 
     // Skip controls we must never touch automatically. File inputs ARE
@@ -226,7 +361,8 @@ function collectFields() {
     const styledChoice = (rawType === 'checkbox' || rawType === 'radio') && !isVisible(el)
       && (() => {
         const lab = (el.id && document.querySelector(`label[for="${cssEscape(el.id)}"]`)) || el.closest('label');
-        return Boolean(lab && isVisible(lab) && lab.textContent.trim());
+        // ...or draws a role="radio"/"checkbox" box around it (Rippling).
+        return Boolean(lab && isVisible(lab) && lab.textContent.trim()) || Boolean(styledBoxOf(el));
       })();
     if (!isVisible(el) && !styledChoice) continue;
 
@@ -252,7 +388,7 @@ function collectFields() {
       }));
       const sel = selectorFor(el);
       const label = labelFor(el);
-      if (sel) out.push({ kind: 'select', type: 'select', selector: sel, label: cleanLabel(label), name: el.name || '', required: isRequired(el, label), options });
+      if (sel) out.push({ kind: 'select', type: 'select', selector: sel, label: cleanLabel(label), name: el.name || '', required: isRequired(el, label), options, hasValue: holdsValue(el) });
       continue;
     }
 
@@ -263,14 +399,18 @@ function collectFields() {
       const radios = Array.from(document.querySelectorAll(`input[type="radio"][name="${cssEscape(el.name)}"]`));
       const options = radios.map((r) => ({
         value: r.value,
-        label: labelFor(r) || r.value,
+        label: optionLabelFor(r) || r.value,
         selector: `input[type="radio"][name="${cssEscape(el.name)}"][value="${cssEscape(r.value)}"]`,
       }));
       const question = groupQuestion(el, options.map((o) => o.label)) || labelFor(el) || el.name;
       const group = el.closest('[role="radiogroup"]');
       const required = radios.some((r) => r.required === true || r.getAttribute('aria-required') === 'true')
         || group?.getAttribute('aria-required') === 'true' || REQUIRED_MARK.test(question);
-      out.push({ kind: 'radio', type: 'radio', selector: null, label: cleanLabel(question), name: el.name, required, options });
+      const answered = radios.some((r) => r.checked || r.closest('[role="radio"]')?.getAttribute('aria-checked') === 'true');
+      out.push({
+        kind: 'radio', type: 'radio', selector: null, label: cleanLabel(question), name: el.name, required, options,
+        hasValue: answered, ...(styledChoice ? { styled: true } : {}),
+      });
       continue;
     }
 
@@ -317,6 +457,11 @@ function collectFields() {
     }
 
     const textLabel = labelFor(el);
+    // A searchable SELECT ("Select..." you can type into) offers a fixed list
+    // when opened, unlike a location typeahead that offers nothing until you
+    // type. Its choices can be read before answering.
+    const selectLike = isCombobox
+      && /^(?:-+\s*)?(?:please\s+)?(?:select|choose)\b/i.test((el.getAttribute('placeholder') || el.getAttribute('aria-label') || '').trim());
     out.push({
       kind: tag === 'textarea' ? 'textarea' : (isCombobox ? 'combobox' : 'text'),
       type: rawType,
@@ -325,7 +470,8 @@ function collectFields() {
       name: el.name || '',
       required: isRequired(el, textLabel),
       options: [],
-      ...(isCombobox ? { listboxSelector } : {}),
+      hasValue: holdsValue(el),
+      ...(isCombobox ? { listboxSelector, ...(selectLike ? { selectLike: true } : {}) } : {}),
     });
   }
 
@@ -561,16 +707,40 @@ export async function unfilledRequiredControls(scope) {
         const rect = el.getBoundingClientRect();
         return rect.width > 0 && rect.height > 0;
       };
+      const textOf = (node) => (node?.textContent || '').replace(/\s+/g, ' ').trim();
+      // Same rules as the scanner's labelFor: a placeholder word ("Select",
+      // "textbox") is not a name, aria-labelledby beats aria-label, and an
+      // unassociated question printed just above the field is its name.
+      const GENERIC = /^(?:-+\s*)?(?:please\s+)?(?:select|choose|pick|search|textbox|text\s*box|text\s*field|input|combobox|combo\s*box|dropdown|drop-down|type\s+here|type\s+to\s+search|enter\s+(?:a\s+)?(?:value|text))(?:\s+(?:an?\s+)?(?:option|one|answer|value|item|here))?\s*(?:\.{2,}|…)?\s*-*$/i;
+      const generic = (t) => !String(t || '').trim() || GENERIC.test(String(t).trim());
+      const CONTROL = 'input:not([type="hidden"]), select, textarea, [role="combobox"], [role="radiogroup"], [role="listbox"], [role="radio"], [role="checkbox"]';
+      const controlsIn = (n) => (n && n.nodeType === 1 ? (n.matches(CONTROL) ? 1 : 0) + n.querySelectorAll(CONTROL).length : 0);
+      const questionBefore = (el) => {
+        let box = el;
+        for (let d = 0; box && box.parentElement && d < 8; d += 1) {
+          const prev = box.previousElementSibling;
+          if (prev && controlsIn(prev) === 0) { const t = textOf(prev); if (t) return t.length <= 400 ? t : null; }
+          else if (prev) return null;
+          const up = box.parentElement;
+          if (!up || up.tagName === 'FORM' || up === document.body || controlsIn(up) > controlsIn(el)) return null;
+          box = up;
+        }
+        return null;
+      };
       const labelOf = (el) => {
         if (el.labels && el.labels.length) return el.labels[0].textContent.trim();
-        const aria = el.getAttribute('aria-label');
-        if (aria) return aria.trim();
-        const by = el.getAttribute('aria-labelledby');
-        if (by) {
-          const ref = document.getElementById(by.split(/\s+/)[0]);
-          if (ref) return ref.textContent.trim();
-        }
-        return el.name || el.id || 'required field';
+        const by = (el.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean)
+          .map((id) => textOf(document.getElementById(id))).filter(Boolean).join(' ');
+        if (by && !generic(by)) return by;
+        const aria = (el.getAttribute('aria-label') || '').trim();
+        if (aria && !generic(aria)) return aria;
+        return questionBefore(el) || aria || el.name || el.id || 'required field';
+      };
+      // A custom dropdown's committed choice is its visible text, once that is
+      // no longer the placeholder.
+      const shows = (el) => {
+        const t = textOf(el);
+        return Boolean(t) && !generic(t) && t !== (el.getAttribute('aria-label') || '').trim();
       };
       const out = [];
       const seenGroups = new Set();
@@ -593,9 +763,12 @@ export async function unfilledRequiredControls(scope) {
         if (!['input', 'select', 'textarea'].includes(tag)) {
           // An ARIA widget (radiogroup / combobox / listbox) marked required.
           if (!visible(el)) continue;
+          // An open dropdown's list is marked required too; it is not a field.
+          if (el.getAttribute('role') === 'listbox' && el.id && document.querySelector(`[aria-controls="${CSS.escape(el.id)}"], [aria-owns="${CSS.escape(el.id)}"]`)) continue;
           const chosen = el.querySelector('[aria-checked="true"], [aria-selected="true"]')
             || (el.getAttribute('aria-valuetext') || '').trim()
-            || el.querySelector('[class*="single-value"], [class*="singleValue"]');
+            || el.querySelector('[class*="single-value"], [class*="singleValue"]')
+            || (el.getAttribute('role') === 'combobox' && shows(el));
           if (!chosen) out.push(labelOf(el));
           continue;
         }

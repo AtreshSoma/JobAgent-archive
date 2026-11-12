@@ -423,7 +423,9 @@ export function answerScreeningQuestion(question, screeningAnswers, { choices, c
 
   // For multiple-choice questions, only answer if our value maps to a choice.
   if (Array.isArray(choices) && choices.length) {
-    const mapped = mapToChoice(answer, best.type, choices);
+    const aboutAuthorization = (best.patterns ?? []).some((p) => AUTHORIZATION_QUESTION.test(String(p)));
+    const mapped = mapToChoice(answer, best.type, choices)
+      ?? (aboutAuthorization ? authorizationChoice(asked, answer, choices, { status: candidate?.workAuthorization?.status }) : null);
     if (mapped === null) return askUser(defaults);
     return { answered: true, action: 'answer', matchedId: best.id, answer: mapped, type: best.type ?? 'text', confidence: bestScore };
   }
@@ -697,6 +699,64 @@ export function mapToChoice(answer, type, choices) {
     return choice && (wholeWordIn(norm, choice) || wholeWordIn(choice, norm));
   });
   return partial ?? null;
+}
+
+/** A question asking ONLY whether the candidate may work (in the US). */
+const AUTHORIZATION_QUESTION = /\b(?:legally\s+)?(?:authori[sz]ed|eligible|permitted|entitled)\s+to\s+work\b|\bwork\s+authori[sz]ation\b|\bright\s+to\s+work\b/i;
+/** ...and one that also asks about sponsorship or a visa is a different question. */
+const SPONSORSHIP_WORDS = /\b(?:sponsor\w*|visas?|h-?1-?b|opt|cpt|green\s*card|immigration)\b/i;
+/**
+ * Narrower questions a visa holder may have to answer "No" to, although they
+ * are authorized to work: "for ANY employer", "without restriction", "are you
+ * a citizen or permanent resident".
+ */
+const RESTRICTED_AUTHORIZATION = /\bany\s+(?:u\.?s\.?\s+)?employer\b|\bwithout\s+(?:any\s+)?restrictions?\b|\bunrestricted\b|\bcitizen\w*\b|\bpermanent\s+resident\b|\bnational\b/i;
+/** An answer that STATES authorization ("... authorized to work in the United States ..."). */
+const STATES_AUTHORIZED = /\b(?:authori[sz]ed|eligible|permitted)\s+to\s+work\b/i;
+const DENIES_AUTHORIZED = /\b(?:not|n't|never|un)\s*(?:currently\s+|yet\s+|legally\s+)?(?:authori[sz]ed|eligible|permitted)\b|\bno\s+(?:work\s+)?authori[sz]ation\b/i;
+
+/**
+ * "Yes" for a Yes/No "Are you legally authorized to work in the United
+ * States?" when the saved answer states that the candidate is.
+ *
+ * The derived work-authorization answer is a sentence ("H-1B — authorized to
+ * work in the United States, and will need continued visa sponsorship."), and
+ * mapToChoice only reads a LEADING yes/no, so the question went to the person
+ * although the profile answers it (2026-11-12, Orion180). Only the
+ * affirmative is inferred, never "No"; never for a question that also asks
+ * about sponsorship or a visa (that one has two answers), and never when the
+ * answer denies authorization anywhere. Another country is refused earlier
+ * (foreignCountryIn).
+ *
+ * @returns {string|null} the "Yes" choice, or null
+ */
+export function authorizationChoice(question, answer, choices = [], { status } = {}) {
+  const q = String(question ?? '');
+  if (!AUTHORIZATION_QUESTION.test(q) || SPONSORSHIP_WORDS.test(q) || RESTRICTED_AUTHORIZATION.test(q)) return null;
+  const a = String(answer ?? '');
+  if (DENIES_AUTHORIZED.test(a)) return null;
+  // The answer says so, or the profile's stated status is one that grants US
+  // work authorization (see statusGrantsWork). The profile deriver already
+  // states "<status> — authorized to work in the United States" from the
+  // status alone; a person's own wording ("Currently on H-1B; requires
+  // transfer and continued sponsorship.") says the same without those words.
+  if (!STATES_AUTHORIZED.test(a) && !statusGrantsWork(status)) return null;
+  return choices.find((c) => /^(yes|y)\b/i.test(String(c).trim())) ?? null;
+}
+
+/**
+ * US immigration statuses that carry authorization to work, as a profile
+ * states them. A status that is pending, expired, applied for or sought is
+ * not one, and neither is anything not on this list (J-1, CPT, F-1 without
+ * OPT, B-1/B-2): those are left to the person.
+ */
+const WORK_AUTHORIZING_STATUS = /\b(?:u\.?s\.?\s+)?citizen\b|\bpermanent\s+resident\b|\bgreen\s*card\b|\blpr\b|\bh-?1-?b1?\b|\bh-?4\s*ead\b|\bl-?1[ab]?\b|\bl-?2\s*ead\b|\bo-?1\b|\btn\b|\be-?3\b|\bead\b|\b(?:stem\s+)?opt\b|\basylee\b|\brefugee\b|\btps\b|\bdaca\b/i;
+const NOT_YET_STATUS = /\b(?:pending|expired?|expiring|lapsed|applied|applying|apply|awaiting|seeking|need(?:s|ed)?|will\s+need|requires?\s+(?:a\s+)?(?:new|initial)|not|no)\b/i;
+
+/** Does the profile's stated work status grant authorization to work in the US? */
+export function statusGrantsWork(status) {
+  const s = String(status ?? '').trim();
+  return Boolean(s) && WORK_AUTHORIZING_STATUS.test(s) && !NOT_YET_STATUS.test(s);
 }
 
 /**

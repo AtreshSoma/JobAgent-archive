@@ -29,6 +29,13 @@ const FIELD_ALIASES = {
   linkedin: ['linkedin'],
   github: ['github'],
   portfolio: ['portfolio', 'website', 'personal site'],
+  // EXACT labels only: "company" and "employer" are third-party words (see
+  // THIRD_PARTY_WORDS), so "Reference's company" or "Previous employer" can
+  // never reach this through substring matching.
+  currentCompany: [
+    'current company', 'current employer', 'current company name', 'current employer name',
+    'present employer', 'present company', 'current organization', 'current organisation',
+  ],
 };
 
 /**
@@ -114,12 +121,22 @@ export function valueForField(field, candidate = {}) {
     case 'linkedin': return links.linkedin || null;
     case 'github': return links.github || null;
     case 'portfolio': return links.portfolio || null;
+    // The employer of the role the profile marks CURRENT. No current role
+    // stated, no answer: the most recent past employer is not "current".
+    case 'currentCompany': {
+      const history = Array.isArray(candidate.workHistory) ? candidate.workHistory : [];
+      const current = history.filter((w) => w?.current === true && String(w?.employer ?? '').trim());
+      return current.length === 1 ? String(current[0].employer).trim() : null;
+    }
     default: return null;
   }
 }
 
 /** Name-ish canonical fields handled by the dedicated, combined-aware resolver. */
 const NAME_FIELDS = new Set(['firstName', 'lastName', 'preferredName', 'fullName']);
+
+/** Fields matched on an exact label only, never as a phrase inside one. */
+const EXACT_ONLY_FIELDS = new Set(['currentCompany']);
 
 /**
  * Profile fields are SHORT, label-like text. A long sentence or question (a
@@ -206,7 +223,7 @@ export function classifyLabel(label) {
 
   // 4. Whole-word / phrase matching for the remaining canonical fields.
   for (const [field, aliases] of Object.entries(FIELD_ALIASES)) {
-    if (NAME_FIELDS.has(field)) continue;
+    if (NAME_FIELDS.has(field) || EXACT_ONLY_FIELDS.has(field)) continue;
     const blockers = FIELD_DISQUALIFIERS[field];
     if (blockers && blockers.some((b) => hasWord(clean, b))) continue;
     if (aliases.some((a) => containsPhrase(tokens, a))) return field;

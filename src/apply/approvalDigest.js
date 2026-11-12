@@ -19,7 +19,9 @@
 
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
+import { extname } from 'node:path';
 
+import { documentFormats } from './fileUpload.js';
 import { effectiveAnswers } from './screeningQA.js';
 
 /** Event type that records an approval and its digest. */
@@ -32,6 +34,8 @@ const PART_NAMES = Object.freeze({
   answers: 'your saved screening answers',
   profile: 'your profile details',
   plan: 'the planned answers in the packet',
+  formats: 'the other formats of the resume or cover letter',
+  employer: 'your current employer',
 });
 
 const hash = (value) => createHash('sha256').update(value).digest('hex').slice(0, 20);
@@ -72,12 +76,25 @@ export function approvalDigest(packet = {}, config = {}) {
   const plan = (packet?.screeningPlan?.answered ?? [])
     .map((a) => [String(a?.label ?? a?.question ?? ''), String(a?.answer ?? a?.value ?? '')]);
 
+  // The same documents in their other formats: a form that refuses the planned
+  // format is sent one of these instead (uploadRunner.fileForInput).
+  const formats = [resumePath, letterPath]
+    .flatMap((p) => documentFormats(p).slice(1))
+    .map((p) => [extname(p), fileHash(p)]);
+
+  // The current employer, which fills a "Current company" field.
+  const current = (Array.isArray(c.workHistory) ? c.workHistory : []).find((w) => w?.current === true);
+
+  // `formats` and `employer` were added after the first digests were recorded;
+  // digestChanges skips a part an older approval lacks.
   return {
     resume: fileHash(resumePath),
     coverLetter: fileHash(letterPath),
     answers: hash(JSON.stringify(answers)),
     profile: hash(JSON.stringify(profile)),
     plan: hash(JSON.stringify(plan)),
+    formats: hash(JSON.stringify(formats)),
+    employer: hash(JSON.stringify(current?.employer ?? null)),
   };
 }
 

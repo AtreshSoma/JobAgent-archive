@@ -34,7 +34,10 @@ const screeningAnswers = JSON.parse(readFileSync(join(FIXTURES, 'config', 'scree
 
 describe('classifyLabel keeps the candidate\'s details in the candidate\'s fields', () => {
   const NOT_MINE = [
-    'Middle Name', 'Company name', 'Current employer name', 'Name of school', 'School name', 'Reference name',
+    // "Current employer name" left this list on 2026-11-12: it now takes the
+    // employer of the profile's current role (see ripplingApplication20261112),
+    // still never the candidate's own name.
+    'Middle Name', 'Company name', 'Name of school', 'School name', 'Reference name',
     'Emergency contact name', 'Emergency contact phone', 'Reference email', 'Recruiter email', 'Hiring manager name',
     'Previous name', 'Name pronunciation', 'University name', 'Degree name', 'Manager name and email',
     'Signature (type your full name)', 'Referred by (name)', 'Who referred you? Name', 'Company website',
@@ -53,6 +56,7 @@ describe('classifyLabel keeps the candidate\'s details in the candidate\'s field
     'State/Province': 'state', 'Zip code': 'zip', Country: 'country', 'Country of residence': 'country',
     'Current location': 'location', 'LinkedIn profile': 'linkedin', 'Personal website': 'portfolio',
     'Which state are you located in?': 'state', 'What city do you live in?': 'city',
+    'Current employer name': 'currentCompany', 'Current company': 'currentCompany',
   };
   for (const [label, field] of Object.entries(MINE)) {
     it(`still fills "${label}" from the profile`, () => expect(classifyLabel(label)).toBe(field));
@@ -196,7 +200,9 @@ describe('assistApply on the audit pages (real Chromium, local files, nothing se
       const v = (id) => { const el = document.getElementById(id); return el.tagName === 'SELECT' ? el.selectedIndex : el.value; };
       return { mn: v('mn'), co: v('co'), ref: v('ref'), refmail: v('refmail'), ecp: v('ecp'), cit: v('cit'), bg: v('bg'), acc: v('acc'), reloc: v('reloc') };
     });
-    expect(read).toEqual({ mn: '', co: '', ref: '', refmail: '', ecp: '', cit: 0, bg: 0, acc: 0, reloc: '' });
+    // "Current company name" gets the employer of the profile's CURRENT role
+    // (2026-11-12), never the candidate's own name (AF-02).
+    expect(read).toEqual({ mn: '', co: 'Northwind Analytics', ref: '', refmail: '', ecp: '', cit: 0, bg: 0, acc: 0, reloc: '' });
   }, 60000);
 
   it('AF-05: a typeahead with no list of its own never clicks another question\'s control', async (ctx) => {
@@ -267,10 +273,13 @@ describe('assistApply on the audit pages (real Chromium, local files, nothing se
     if (!available) return ctx.skip();
     const { page } = await run('language_combobox_posting.html');
     await page.goto(pageUrl('rippling_upload_slots.html'));
-    const resume = join(FIXTURES, 'sample_resume.txt');
+    // Both slots accept only .doc/.docx/.pdf, so .docx documents (a .txt is now
+    // refused before it reaches the form; see ripplingApplication20261112).
+    const resume = join(FIXTURES, 'audit', 'docs', 'Fixture_Resume_Analytics_Engineer.docx');
+    const letter = join(FIXTURES, 'audit', 'docs', 'Fixture_Cover_Letter_Analytics_Engineer.docx');
     // Cover letter listed FIRST, and no selector hints: only the page's own words decide.
     const out = await uploadFiles(page, { uploads: [
-      { type: 'coverLetter', path: resume, required: true },
+      { type: 'coverLetter', path: letter, required: true },
       { type: 'resume', path: resume, required: true },
     ] });
     expect(out.blockers).toEqual([]);
