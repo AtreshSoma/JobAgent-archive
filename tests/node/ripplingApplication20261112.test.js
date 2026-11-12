@@ -1,5 +1,5 @@
 /**
- * Rippling application step (2026-11-12, Orion180): the run reached the form
+ * Rippling application step (2026-11-12, a Rippling posting): the run reached the form
  * and left most of it blank.
  *
  * Causes, each confirmed on the live form before fixing:
@@ -46,15 +46,15 @@ const screeningAnswers = JSON.parse(readFileSync(join(FIXTURES, 'config', 'scree
 const YN = ['Yes', 'No'];
 
 describe('work authorization: a saved sentence answers a Yes/No question only when it states it', () => {
-  it('answers "Yes" to the Orion180 wording from "Authorized to work in the United States on an H-1B"', () => {
+  it('answers "Yes" to a Rippling posting\'s wording from a saved answer that states authorization', () => {
     const r = answerScreeningQuestion('If hired, are you legally authorized to work in the United States', screeningAnswers, { choices: YN, candidate });
     expect(r).toMatchObject({ answered: true, answer: 'Yes', matchedId: 'work_authorization' });
   });
 
   it('answers "Yes" from a person\'s own wording when their stated status grants work authorization', () => {
-    // The real profile's answer has this shape: it never says "authorized to work".
+    // A person's own wording, which never says "authorized to work".
     const own = { ...screeningAnswers, answers: screeningAnswers.answers.map((a) => (a.id === 'work_authorization'
-      ? { ...a, answer: 'Currently on H-1B; requires transfer and continued sponsorship.' } : a)) };
+      ? { ...a, answer: candidate.workAuthorization.details } : a)) };
     const q = 'If hired, are you legally authorized to work in the United States';
     expect(answerScreeningQuestion(q, own, { choices: YN, candidate }).answer).toBe('Yes');
     const pending = { ...candidate, workAuthorization: { ...candidate.workAuthorization, status: 'H-1B pending' } };
@@ -119,11 +119,11 @@ describe('uploads: accepted formats and widgets that clear their input', () => {
   });
 
   it('counts a file as attached when the slot shows it, and an error as a rejection', () => {
-    const path = '/x/Atresh_Somayajula_Resume_Senior.docx';
+    const path = '/x/Priya_Raghunathan_Resume_Senior.docx';
     const before = 'Total 0 file selected Drop or select (.doc / .docx / .pdf)';
-    expect(slotShowsFile(before, 'Total 1 file selected Atresh_Somayaju...docx', path)).toMatchObject({ shown: true });
-    expect(slotShowsFile(before, 'Atresh_Somayaju…docx', path)).toMatchObject({ shown: true });
-    expect(slotShowsFile(before, 'Atresh_Somayajula_Resume_Senior.docx', path)).toMatchObject({ shown: true });
+    expect(slotShowsFile(before, 'Total 1 file selected Priya_Raghunatha...docx', path)).toMatchObject({ shown: true });
+    expect(slotShowsFile(before, 'Priya_Raghunatha…docx', path)).toMatchObject({ shown: true });
+    expect(slotShowsFile(before, 'Priya_Raghunathan_Resume_Senior.docx', path)).toMatchObject({ shown: true });
     expect(slotShowsFile(before, before, path)).toMatchObject({ shown: false });
     expect(slotShowsFile(before, "The type of the file x.txt isn't supported.", path)).toMatchObject({ shown: false, rejected: true });
   });
@@ -192,7 +192,7 @@ describe('assistApply on a copy of the Rippling application step (real Chromium,
     // Saved answers on custom dropdowns and on a field named only by a <p>.
     expect(dom.sponsorship).toBe('Yes'); // the candidate requires sponsorship
     expect(dom.authorized).toBe('Yes');
-    expect(dom.salary).toMatch(/150,000/);
+    expect(dom.salary).toBe(screeningAnswers.answers.find((a) => a.id === 'salary_expectation').answer);
     // Nothing invented for questions with no saved answer.
     expect(dom).toMatchObject({ stemOpt: 'Select', employedBefore: 'Select', fit: '', gender: 'Select...', race: '' });
 

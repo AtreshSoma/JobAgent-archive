@@ -722,7 +722,7 @@ const DENIES_AUTHORIZED = /\b(?:not|n't|never|un)\s*(?:currently\s+|yet\s+|legal
  * The derived work-authorization answer is a sentence ("H-1B — authorized to
  * work in the United States, and will need continued visa sponsorship."), and
  * mapToChoice only reads a LEADING yes/no, so the question went to the person
- * although the profile answers it (2026-11-12, Orion180). Only the
+ * although the profile answers it (2026-11-12, a Rippling posting). Only the
  * affirmative is inferred, never "No"; never for a question that also asks
  * about sponsorship or a visa (that one has two answers), and never when the
  * answer denies authorization anywhere. Another country is refused earlier

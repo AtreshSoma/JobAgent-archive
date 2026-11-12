@@ -40,7 +40,7 @@ function collectFields() {
   // accessible name. Rippling labels every dropdown aria-label="Select" and
   // its location box aria-label="textbox"; read as labels they matched no
   // answer, and the person was asked to answer "Search" and "textbox"
-  // (2026-11-12, Orion180).
+  // (2026-11-12, a Rippling posting).
   const GENERIC_NAME = /^(?:-+\s*)?(?:please\s+)?(?:select|choose|pick|search|textbox|text\s*box|text\s*field|input|combobox|combo\s*box|dropdown|drop-down|type\s+here|type\s+to\s+search|enter\s+(?:a\s+)?(?:value|text))(?:\s+(?:an?\s+)?(?:option|one|answer|value|item|here))?\s*(?:\.{2,}|…)?\s*-*$/i;
   const isGeneric = (text) => !String(text || '').trim() || GENERIC_NAME.test(String(text).trim());
   // A form's internal field key ("z0v_CCXsxi", "6WjYMs0Dp") is not a label.
@@ -240,7 +240,7 @@ function collectFields() {
   // A site's DISPLAY-language picker (Rippling's job pages carry one). Counted
   // as an application question, it made a job description look like a form,
   // so "Apply now" was never taken as the way in and the run stopped on the
-  // posting with "resume upload input not found" (2026-11-12, Orion180).
+  // posting with "resume upload input not found" (2026-11-12, a Rippling posting).
   // An application question about languages you SPEAK is not one of these: it
   // is matched only by an interface phrase, or by a bare "Language" select
   // whose options are language names or locale codes.
@@ -322,7 +322,7 @@ function collectFields() {
   // Custom dropdowns are scanned in document order with everything else.
   // Rippling (and any headless-UI form) renders its choice questions as
   // <div role="combobox"> with no <select> and no <input> behind them: all
-  // seven of Orion180's Yes/No questions, gender, ethnicity and veteran status
+  // seven Yes/No questions on one Rippling posting, gender, ethnicity and veteran status
   // were invisible to the scanner, never filled, never reported (2026-11-12).
   const CUSTOM_SELECT = '[role="combobox"]:not(input):not(select):not(textarea), button[aria-haspopup="listbox"]';
   const controls = Array.from(document.querySelectorAll(`input, textarea, select, ${CUSTOM_SELECT}`));

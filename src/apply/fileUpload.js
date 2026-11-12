@@ -70,7 +70,7 @@ const DOCUMENT_FORMATS = ['.pdf', '.docx', '.doc', '.rtf', '.txt'];
  * The packet writes each document under one stem in several formats (see
  * outputPaths), so a same-stem sibling is that document, not another one. A
  * form that accepts only .doc/.docx/.pdf (Rippling) then gets the .docx cover
- * letter instead of the .txt it rejects (2026-11-12, Orion180).
+ * letter instead of the .txt it rejects (2026-11-12, a Rippling posting).
  *
  * @param {string} path
  * @param {{fileExists?: (p: string) => boolean}} [deps]

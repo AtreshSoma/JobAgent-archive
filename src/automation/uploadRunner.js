@@ -86,7 +86,7 @@ const FILE_REJECTED = /\b(?:isn'?t supported|not supported|unsupported|not (?:an
  * clear the input (Rippling), the FileList is empty although the file is
  * attached, and the run reported "did not remain attached" for a resume that
  * was on the form (2026-11-12). Evidence, any of:
- *   - the file's name, whole or shortened with an ellipsis ("Atresh_Somayaju...docx");
+ *   - the file's name, whole or shortened with an ellipsis ("Priya_Raghunatha...docx");
  *   - a count that went from none to "1 file selected".
  * An error message in the slot always wins.
  */
@@ -101,7 +101,7 @@ export function slotShowsFile(before, after, path) {
   const stem = name.slice(0, name.length - ext.length).toLowerCase();
   if (stem.length >= 8) {
     const head = stem.slice(0, 8).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    // "Atresh_Somayaju...docx": the ellipsis may swallow the extension's dot.
+    // "Priya_Raghunatha...docx": the ellipsis may swallow the extension's dot.
     const tail = ext.slice(1).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     if (tail && new RegExp(`${head}[^\\s]*?(?:\\.\\.\\.|…)[^\\s]*?\\.?${tail}\\b`, 'i').test(now)) return { shown: true, how: 'shortened file name shown' };
   }
@@ -182,7 +182,7 @@ function collectFileInputs(hints) {
     // "Drop or select (.doc / .docx / .pdf)"; the field's name ("Résumé",
     // "Cover letter") is on the element that LABEL points at with
     // aria-labelledby. Reading only the label's text left both slots unnamed
-    // (2026-11-12, Orion180).
+    // (2026-11-12, a Rippling posting).
     const referenced = (node) => ['aria-labelledby', 'aria-describedby']
       .flatMap((attr) => (node.getAttribute(attr) || '').split(/\s+/).filter(Boolean))
       .map((id) => text(document.getElementById(id)));
