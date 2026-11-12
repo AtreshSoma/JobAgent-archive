@@ -151,14 +151,23 @@ export async function verifyFilledFields(page, filled = []) {
     }
 
     try {
-      const state = await locator.evaluate((el) => ({
-        type: String(el.type ?? '').toLowerCase(),
-        valuePresent: String(el.value ?? '').trim().length > 0,
-        checked: Boolean(el.checked),
-        valid: typeof el.checkValidity === 'function' ? el.checkValidity() : true,
-      }));
+      const state = await locator.evaluate((el) => {
+        // react-select and friends clear the input on commit and render the
+        // chosen value beside it; that IS the field's value.
+        const box = el.parentElement?.closest('[class*="select__control"], [class*="-control"], [class*="container"], [role="combobox"]')
+          ?? el.parentElement;
+        const committed = box?.querySelector?.('[class*="single-value"], [class*="singleValue"], [class*="multi-value"], [class*="multiValue"]');
+        return {
+          type: String(el.type ?? '').toLowerCase(),
+          valuePresent: String(el.value ?? '').trim().length > 0,
+          committedPresent: String(committed?.textContent ?? '').trim().length > 0,
+          checked: Boolean(el.checked),
+          valid: typeof el.checkValidity === 'function' ? el.checkValidity() : true,
+        };
+      });
       const action = field.action ?? 'fill';
       let retained = state.valuePresent;
+      if (action === 'combobox') retained = state.valuePresent || state.committedPresent === true;
       if (action === 'check') retained = state.checked;
       else if (action === 'uncheck') retained = !state.checked;
       else if (action === 'radio') retained = state.checked || state.valuePresent;

@@ -22,6 +22,7 @@
 import { buildPrefillPlan } from '../apply/formPrefill.js';
 import {
   contradictingSponsorshipClaim, isInvertedSponsorshipQuestion, isSponsorshipTopic, candidateRequiresSponsorship,
+  mapToChoice,
 } from '../apply/screeningQA.js';
 import { wholeWordIn } from '../utils/textNormalize.js';
 
@@ -71,8 +72,19 @@ async function safeCount(page, selector) {
   try { return await page.locator(selector).count(); } catch { return 0; }
 }
 
-/** Selectors that commonly hold the rendered options of a typeahead/combobox. */
-const OPTION_SELECTORS = ['[role="option"]', '.select__option', 'li[role="option"]', '[class*="option"]'];
+/**
+ * Selectors that hold the rendered options of a typeahead/combobox.
+ *
+ * SCOPED is used inside the popup the input says it owns (aria-controls /
+ * aria-owns), where any list item is one of ITS options. PAGE_WIDE is used
+ * when the input names no popup, and is restricted to nodes that declare
+ * themselves options. It used to include `[class*="option"]` page-wide, and on
+ * a form whose yes/no questions were buttons with an "_option_" class, typing
+ * a city into "Location" with no list open clicked the "Yes" of a sponsorship
+ * question further down the page.
+ */
+const SCOPED_OPTION_SELECTORS = ['[role="option"]', '.select__option', 'li', '[class*="option"]'];
+const PAGE_WIDE_OPTION_SELECTORS = ['[role="listbox"] [role="option"]', '.select__menu .select__option', '[role="option"]'];
 
 /**
  * Longest typed value we trust a typeahead to have filtered for us. A short
@@ -97,18 +109,15 @@ async function pickComboboxOption(page, field, value) {
   // Never "trust the top result" for a legal/immigration/demographic question;
   // see SENSITIVE_CHOICE_LABEL.
   const sensitive = isSensitiveChoiceLabel(field.label);
-  const allowTopMatch = !sensitive && want.length > 0 && want.length <= MAX_COMBOBOX_AUTOPICK;
   const scope = field.listboxSelector ? `${field.listboxSelector} ` : '';
+  // "Whatever the typeahead put on top" is trusted only inside the popup this
+  // input owns, where the site itself filtered the list by what we typed.
+  const allowTopMatch = Boolean(scope) && !sensitive && want.length > 0 && want.length <= MAX_COMBOBOX_AUTOPICK;
+  const selectors = scope ? SCOPED_OPTION_SELECTORS : PAGE_WIDE_OPTION_SELECTORS;
 
-  // Async typeaheads (Greenhouse's location field) render results a beat after
-  // the keystrokes. Give them a moment before deciding nothing appeared.
-  if (typeof page.waitForSelector === 'function') {
-    const anyOption = OPTION_SELECTORS.map((base) => `${scope}${base}`).join(', ');
-    try { await page.waitForSelector(anyOption, { state: 'attached', timeout: OPTION_WAIT_MS }); }
-    catch { /* none rendered — handled below */ }
-  }
+  await waitForOptions(page, scope, selectors);
 
-  for (const base of OPTION_SELECTORS) {
+  for (const base of selectors) {
     const sel = `${scope}${base}`;
     let count;
     try { count = await page.locator(sel).count(); } catch { count = 0; }
@@ -142,6 +151,36 @@ async function pickComboboxOption(page, field, value) {
   // datalist or a typeahead that had not rendered yet would SUBMIT the
   // application, bypassing every approval gate on the real submit path.
   return { ok: false, action: 'combobox', error: 'no matching option appeared' };
+}
+
+/**
+ * Async typeaheads (Greenhouse's location field) render results a beat after
+ * the keystrokes. Give them a moment before deciding nothing appeared.
+ */
+async function waitForOptions(page, scope, selectors) {
+  if (typeof page.waitForSelector !== 'function') return;
+  const anyOption = selectors.map((base) => `${scope}${base}`).join(', ');
+  try { await page.waitForSelector(anyOption, { state: 'attached', timeout: OPTION_WAIT_MS }); }
+  catch { /* none rendered — handled by the caller */ }
+}
+
+/**
+ * The option texts a combobox offers once opened, or [] when it shows none
+ * (or the page cannot be read). Same scoping rules as pickComboboxOption.
+ */
+async function comboboxOptionTexts(page, field) {
+  const scope = field.listboxSelector ? `${field.listboxSelector} ` : '';
+  const selectors = scope ? SCOPED_OPTION_SELECTORS : PAGE_WIDE_OPTION_SELECTORS;
+  await waitForOptions(page, scope, selectors);
+  for (const base of selectors) {
+    try {
+      const loc = page.locator(`${scope}${base}`);
+      if (!(await loc.count())) continue;
+      const texts = (await loc.allTextContents()).map((t) => String(t ?? '').trim()).filter(Boolean);
+      if (texts.length) return texts;
+    } catch { /* try the next shape */ }
+  }
+  return [];
 }
 
 /** Find the option whose label or value best matches `value` (case-insensitive). */
@@ -227,7 +266,7 @@ async function readBackChoice(locator, kind, fallback) {
         return (lab?.textContent ?? el.value ?? '');
       }
       // react-select and friends render the committed value next to the input.
-      const box = el.closest('[class*="select__control"], [class*="-control"], [class*="container"], [role="combobox"]')
+      const box = el.parentElement?.closest('[class*="select__control"], [class*="-control"], [class*="container"], [role="combobox"]')
         ?? el.parentElement;
       const single = box?.querySelector?.('[class*="single-value"], [class*="singleValue"], [class*="selected"]');
       return single?.textContent ?? el.value ?? '';
@@ -328,8 +367,20 @@ export async function applyValue(page, field, value, { requiresSponsorship } = {
       // Open the widget, type the value (react-select listens on input events),
       // then commit a matching option from the dropdown.
       try { await input.click?.(); } catch { /* best effort */ }
-      await input.fill(String(resolvedValue));
-      const res = await pickComboboxOption(page, field, resolvedValue);
+      // A stored answer is often a sentence ("Yes, open to relocation within
+      // the United States") while the widget offers "Yes" / "No". Typing the
+      // sentence filters the list to nothing. When the opened list shows its
+      // choices, map the answer onto one of them first, the same way a native
+      // select is answered.
+      let typed = String(resolvedValue);
+      const needsChoice = /^(yes|no)\b/i.test(typed.trim()) || typed.length > MAX_COMBOBOX_AUTOPICK;
+      const offered = needsChoice ? await comboboxOptionTexts(page, field) : [];
+      if (offered.length) {
+        const mapped = mapToChoice(typed, null, offered);
+        if (mapped) typed = mapped;
+      }
+      await input.fill(typed);
+      const res = await pickComboboxOption(page, field, typed);
       // Never leave stray filter text behind when we could not commit a choice —
       // an unselected combobox showing leftover text reads as a wrong answer.
       if (!res.ok) { try { await input.fill?.(''); } catch { /* best effort */ } return res; }

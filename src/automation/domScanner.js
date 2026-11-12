@@ -56,15 +56,73 @@ function collectFields() {
     return (el.name || '').trim();
   };
 
-  // Stable, unique-ish selector for a control.
+  // Stable, unique-ish selector for a control. A control with neither id nor
+  // name gets a per-page handle: dropping it made a real quick-apply form look
+  // like a fieldless landing page, and its "Apply now" (the final submit) was
+  // then clicked as the way in.
+  const handleFor = (el) => {
+    let tag = el.getAttribute('data-jobagent-field');
+    if (!tag) {
+      window.__jobagentFieldSeq = (window.__jobagentFieldSeq || 0) + 1;
+      tag = String(window.__jobagentFieldSeq);
+      el.setAttribute('data-jobagent-field', tag);
+    }
+    return `[data-jobagent-field="${tag}"]`;
+  };
   const selectorFor = (el) => {
     if (el.id) return `#${cssEscape(el.id)}`;
     if (el.name) {
       const tag = el.tagName.toLowerCase();
       const same = document.querySelectorAll(`${tag}[name="${cssEscape(el.name)}"]`);
       if (same.length === 1) return `${tag}[name="${cssEscape(el.name)}"]`;
-      if (el.type) return `${tag}[name="${cssEscape(el.name)}"][type="${el.type}"]`;
-      return `${tag}[name="${cssEscape(el.name)}"]`;
+      if (el.type) {
+        const typed = `${tag}[name="${cssEscape(el.name)}"][type="${el.type}"]`;
+        if (document.querySelectorAll(typed).length === 1) return typed;
+      }
+      return handleFor(el);
+    }
+    return handleFor(el);
+  };
+
+  // ONE definition of "required", for every control kind: the native
+  // attribute, aria-required, or a label that says so ("Email *",
+  // "Phone (required)"). Text fields used to honour only the native attribute,
+  // so an aria-required question was treated as optional, left blank, and the
+  // run reported the form ready.
+  const REQUIRED_MARK = /\*\s*$|\(\s*required\s*\)|\brequired\s*$/i;
+  const isRequired = (el, label) => el.required === true
+    || el.getAttribute('aria-required') === 'true'
+    || REQUIRED_MARK.test(String(label || ''));
+  const cleanLabel = (label) => String(label || '').replace(/\s*(?:\*|\(\s*required\s*\))\s*$/i, '').trim();
+
+  const textOf = (node) => (node?.textContent || '').replace(/\s+/g, ' ').trim();
+  // The QUESTION a radio or checkbox group answers. A group's own options are
+  // labelled "Yes" / "No" / "Day"; the question is the fieldset's legend, the
+  // radiogroup's accessible name, or the text just before the group. Reading
+  // only the first option's label turned "Are you willing to relocate?" into a
+  // question called "Yes".
+  const groupQuestion = (el, optionLabels) => {
+    const legend = el.closest('fieldset')?.querySelector('legend');
+    if (legend && textOf(legend)) return textOf(legend);
+    const group = el.closest('[role="radiogroup"], [role="group"]');
+    if (group) {
+      if (group.getAttribute('aria-label')) return group.getAttribute('aria-label').trim();
+      const by = group.getAttribute('aria-labelledby');
+      const ref = by && document.getElementById(by.split(/\s+/)[0]);
+      if (ref && textOf(ref)) return textOf(ref);
+    }
+    // Nearest ancestor that holds the whole group: the text before it.
+    const name = el.name;
+    let box = el.parentElement;
+    for (let depth = 0; box && depth < 5; depth += 1, box = box.parentElement) {
+      const all = name ? box.querySelectorAll(`input[name="${cssEscape(name)}"]`).length : 1;
+      const mine = name ? document.querySelectorAll(`input[name="${cssEscape(name)}"]`).length : 1;
+      if (all < mine) continue;
+      const prev = box.previousElementSibling;
+      const t = textOf(prev);
+      if (t && t.length <= 300 && !optionLabels.includes(t)) return t;
+      const own = box.getAttribute('aria-label');
+      if (own) return own.trim();
     }
     return null;
   };
@@ -147,7 +205,7 @@ function collectFields() {
       }
       const label = labelFor(el)
         || (el.closest('fieldset')?.querySelector('legend')?.textContent ?? '').trim();
-      if (sel) out.push({ kind: 'file', type: 'file', selector: sel, label, name: el.name || '', required: el.required === true });
+      if (sel) out.push({ kind: 'file', type: 'file', selector: sel, label: cleanLabel(label), name: el.name || '', required: isRequired(el, label) });
       continue;
     }
 
@@ -156,7 +214,8 @@ function collectFields() {
         value: o.value, label: (o.textContent || '').trim(),
       }));
       const sel = selectorFor(el);
-      if (sel) out.push({ kind: 'select', type: 'select', selector: sel, label: labelFor(el), name: el.name || '', required: el.required === true, options });
+      const label = labelFor(el);
+      if (sel) out.push({ kind: 'select', type: 'select', selector: sel, label: cleanLabel(label), name: el.name || '', required: isRequired(el, label), options });
       continue;
     }
 
@@ -170,20 +229,27 @@ function collectFields() {
         label: labelFor(r) || r.value,
         selector: `input[type="radio"][name="${cssEscape(el.name)}"][value="${cssEscape(r.value)}"]`,
       }));
-      out.push({ kind: 'radio', type: 'radio', selector: null, label: labelFor(el) || el.name, name: el.name, required: el.required === true, options });
+      const question = groupQuestion(el, options.map((o) => o.label)) || labelFor(el) || el.name;
+      const group = el.closest('[role="radiogroup"]');
+      const required = radios.some((r) => r.required === true || r.getAttribute('aria-required') === 'true')
+        || group?.getAttribute('aria-required') === 'true' || REQUIRED_MARK.test(question);
+      out.push({ kind: 'radio', type: 'radio', selector: null, label: cleanLabel(question), name: el.name, required, options });
       continue;
     }
 
     if (rawType === 'checkbox') {
       const sel = selectorFor(el);
-      const label = labelFor(el);
-      // Custom widgets mark "required" with aria-required or a trailing "*"
-      // on the label rather than the native attribute.
-      const required = el.required === true || el.getAttribute('aria-required') === 'true'
-        || /\*\s*$/.test(label);
+      let label = labelFor(el);
+      // A checkbox that is one of SEVERAL in a fieldset ("Which shifts can you
+      // work?  [ ] Day  [ ] Night") is one answer to the legend's question.
+      const fieldset = el.closest('fieldset');
+      const siblings = fieldset ? fieldset.querySelectorAll('input[type="checkbox"]').length : 0;
+      const legend = siblings > 1 ? textOf(fieldset.querySelector('legend')) : '';
+      const required = isRequired(el, label);
+      if (legend) label = `${cleanLabel(legend)}: ${cleanLabel(label)}`;
       if (sel) {
         out.push({
-          kind: 'checkbox', type: 'checkbox', selector: sel, label: label.replace(/\s*\*\s*$/, ''),
+          kind: 'checkbox', type: 'checkbox', selector: sel, label: cleanLabel(label),
           name: el.name || '', required, options: [], ...(styledChoice ? { styled: true } : {}),
         });
       }
@@ -213,13 +279,14 @@ function collectFields() {
       if (owns) listboxSelector = `#${cssEscape(owns)}`;
     }
 
+    const textLabel = labelFor(el);
     out.push({
       kind: tag === 'textarea' ? 'textarea' : (isCombobox ? 'combobox' : 'text'),
       type: rawType,
       selector: sel,
-      label: labelFor(el),
+      label: cleanLabel(textLabel),
       name: el.name || '',
-      required: el.required === true,
+      required: isRequired(el, textLabel),
       options: [],
       ...(isCombobox ? { listboxSelector } : {}),
     });
@@ -248,6 +315,37 @@ function collectFields() {
  */
 export function applicationFields(fields = []) {
   return (Array.isArray(fields) ? fields : []).filter((f) => !f?.incidental);
+}
+
+/* c8 ignore start - executes in the browser, not under node coverage */
+function countShadowControls() {
+  let n = 0;
+  const visit = (root, inShadow) => {
+    for (const el of root.querySelectorAll('*')) {
+      if (inShadow && el.matches('input:not([type="hidden"]), textarea, select')) {
+        const r = el.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) n += 1;
+      }
+      if (el.shadowRoot) visit(el.shadowRoot, true);
+    }
+  };
+  visit(document, false);
+  return n;
+}
+/* c8 ignore stop */
+
+/**
+ * Visible form controls inside OPEN shadow roots, which `scanFields` cannot
+ * read (SmartRecruiters and other web-component forms). A page whose only
+ * controls live there is a form the assistant cannot see, not a landing page.
+ * 0 on pages or doubles that cannot be inspected.
+ *
+ * @param {object} scope Playwright page or frame
+ * @returns {Promise<number>}
+ */
+export async function shadowFormControlCount(scope) {
+  if (!scope || typeof scope.evaluate !== 'function') return 0;
+  try { return Number(await scope.evaluate(countShadowControls)) || 0; } catch { return 0; }
 }
 
 /**
@@ -467,7 +565,13 @@ export async function unfilledRequiredControls(scope) {
         if (!visible(el)) continue;
         if (type === 'checkbox') { if (!el.checked) out.push(labelOf(el)); continue; }
         if (type === 'file') { if (!el.files || el.files.length === 0) out.push(labelOf(el)); continue; }
-        if (!String(el.value ?? '').trim()) out.push(labelOf(el));
+        if (String(el.value ?? '').trim()) continue;
+        // A typeahead clears its input on commit and shows the choice beside it.
+        const box = el.parentElement?.closest('[class*="select__control"], [class*="-control"], [class*="container"], [role="combobox"]')
+          ?? el.parentElement;
+        const committed = box?.querySelector?.('[class*="single-value"], [class*="singleValue"], [class*="multi-value"], [class*="multiValue"]');
+        if (committed && (committed.textContent || '').trim()) continue;
+        out.push(labelOf(el));
       }
       return [...new Set(out.map((l) => l.replace(/\s+/g, ' ').slice(0, 120)))];
     });
