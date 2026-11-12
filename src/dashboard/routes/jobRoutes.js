@@ -7,7 +7,7 @@
  * Returns NOT_HANDLED when no route here matched, so server.js tries the next
  * module; anything else means the request was answered.
  */
-import { markApplicationUserSubmitted, markApplicationVerified } from '../../apply/applicationState.js';
+import { markApplicationUserSubmitted, markApplicationVerified, retractApplicationSubmission } from '../../apply/applicationState.js';
 import { loadPacket } from '../../cli/commands.js';
 import { sanitizeErrorMessage } from '../../utils/failureRca.js';
 import { applyDecision, approveJobPacket, jobDetail, markSubmittedByHuman, noteUserMutation, recordOutcome, rejectJobPacket, retractSubmissionReport, setJobNote, undoDecision, undoOutcome, updateFollowUp } from '../data.js';
@@ -16,7 +16,7 @@ import { isAggregatorUrl, isSafeObservedApplicationUrl, readBody, sendJson } fro
 import { NOT_HANDLED } from './notHandled.js';
 import { decideRewrites, latestRewrites, proposeRewrites, refineRewrites, rewriteSettings } from '../../resume/rewrites.js';
 import { APPROVAL_STATUS } from '../../apply/approvalQueue.js';
-import { freezeVersions, readManifest, restoreVersion, versionText } from '../../apply/documentVersions.js';
+import { freezeVersions, readManifest, restoreVersion, unfreezeVersions, versionText } from '../../apply/documentVersions.js';
 import { setLetterMode } from '../../apply/letterMode.js';
 
 export async function handleJobRoutes(ctx, req, res, { url, path }) {
@@ -107,7 +107,7 @@ export async function handleJobRoutes(ctx, req, res, { url, path }) {
       return sendJson(res, 200, result);
     }
     if (req.method === 'POST' && action === 'approve') {
-      const result = approveJobPacket(ctx.db, jobId);
+      const result = approveJobPacket(ctx.db, jobId, { digest: ctx.approvalDigestFor?.(jobId) ?? null });
       ctx.refreshTracker();
       return sendJson(res, 200, result);
     }
@@ -119,6 +119,21 @@ export async function handleJobRoutes(ctx, req, res, { url, path }) {
     // "No, it didn't go through" on an unconfirmed submission.
     if (req.method === 'POST' && action === 'not-submitted') {
       const result = retractSubmissionReport(ctx.db, jobId);
+      // The resumable checkpoint said "submitted" too, and refused every
+      // retry until it was told otherwise; the documents were frozen as sent.
+      try {
+        const approval = ctx.db.getApprovalByJob?.(jobId);
+        const packet = approval
+          ? (ctx.deps.loadPacketImpl ? ctx.deps.loadPacketImpl(approval) : loadPacket(approval))
+          : null;
+        if (packet && ctx.config?.root) {
+          await retractApplicationSubmission({ root: ctx.config.root, packet, toBlocked: result.to === 'assist_blocked' });
+        }
+      } catch (err) {
+        ctx.logger?.warn?.(`application-state retraction skipped for ${jobId}: ${sanitizeErrorMessage(err.message)}`);
+      }
+      try { unfreezeVersions(ctx.db.getJob(jobId)?.output_folder_path); }
+      catch (err) { ctx.logger?.warn?.(`could not unfreeze document versions for ${jobId}: ${sanitizeErrorMessage(err.message)}`); }
       ctx.refreshTracker();
       return sendJson(res, 200, result);
     }
