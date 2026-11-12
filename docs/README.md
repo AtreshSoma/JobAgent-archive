@@ -5,6 +5,7 @@
 | User guide | [Complete user guide](USER_GUIDE.md) | Every feature, command, safety guard and tuning option in depth. |
 | Architecture | [Repository structure](architecture/REPOSITORY_STRUCTURE.md) | Ownership, stable paths, and local state boundaries. |
 | Capability reference | [Source and ATS support matrix](SUPPORT_MATRIX.md) | Evidence and limits for discovery and browser assist. |
+| Before Auto-submit | [Live ATS verification](LIVE_VERIFICATION.md) | The supervised live run each application system needs before Auto-submit is allowed on it. |
 | Published reviews | [September 2026 audit](audits/jobagent-audit-2026-09-14.html) | Historical review; verify findings against the current code before acting on them. |
 | Operations | [Script index](../scripts/README.md) | Maintained commands and archived repair tools. |
 | Interview course | [Course overview](../interview-prep/README.md) | Curriculum, study plan, and links to the modules. |

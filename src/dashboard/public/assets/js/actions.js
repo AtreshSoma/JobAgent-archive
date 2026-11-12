@@ -14,7 +14,7 @@ import { batchApprove, batchAutofill, batchDecide, batchPrepare, clearSelection,
 import { openDocuments, openReports } from './reports.js';
 import { openDataQuality, saveFreshness, startEnrichment, stopEnrichment, toggleEnrichment } from './dataQuality.js';
 import { adoptResumeSelection, chooseResumeProfile, openMasterResume, openMergePicker, reconsiderResumeChoice, renderMasterResume, restoreMasterVersion, selectedAdoptTitles, submitMergeSelection } from './master.js';
-import { download, openHealth, openProfile, saveAllAnswers, saveProfileDetails, saveQuestionAnswer, setQuestionStatus } from './profile.js';
+import { backupNow, download, openHealth, openProfile, saveAllAnswers, saveProfileDetails, saveQuestionAnswer, setQuestionStatus } from './profile.js';
 import { applyRunGate, openRuns, pollRun, setRunDetails } from './runs.js';
 import { closeMainMenu, toggleMenu } from './menus.js';
 import { applyViewPrefs, hiddenColumns, onFilterChange, savePreference, setFilterSheet, syncThemeControl } from './main.js';
@@ -25,11 +25,23 @@ import { localDay } from './detail.js';
 import { openChangelog } from './changelog.js';
 import { copyEmail, downloadEmailDraft, openEmailJobs, openInMailApp } from './emailJobs.js';
 import { activeProfileId, addAnyway, loadProfiles, openAddProfile, openEditProfile, openRemoveProfile, removePerson, removeRole, savePerson, switchProfile } from './profiles.js';
+import { rewriteActions } from './rewrites.js';
+import { versionActions } from './versions.js';
+import { inboxActions } from './inbox.js';
+import { rerankActions } from './rerank.js';
 
 /* ────────────────────── event delegation ────────────────────── */
 
 export const ACTIONS = {
   reload: () => location.reload(),
+  // Grounded rewrite suggestions in a job's detail (P1-2).
+  ...rewriteActions,
+  // Document versions (P2-2).
+  ...versionActions,
+  // Email replies (P1-7).
+  ...inboxActions,
+  // Rank top matches by meaning (P2-1).
+  ...rerankActions,
   // Applications workspace. None of these approves or submits: outcomes and
   // follow-ups are validated server-side and only ever follow a submission.
   'set-apps-layout': (target) => setAppsLayout(target.dataset.layout),
@@ -218,8 +230,23 @@ export const ACTIONS = {
   'save-answers': () => saveAllAnswers(),
   'delete-answer': (target) => saveAllAnswers({ removeId: target.dataset.id }),
   'open-health': openHealth,
+  'backup-now': backupNow,
   'export-jobs': () => download('/api/export/jobs.csv', 'jobagent_jobs.csv'),
   'export-tracker': () => download('/api/export/tracker.csv', 'job_tracker.csv'),
+  'export-calendar': () => download('/api/calendar.ics', 'jobagent-follow-ups.ics'),
+  // The cover-letter choice for one job (template instead of grounded).
+  'letter-mode': async (target) => {
+    await postJson(`/api/jobs/${encodeURIComponent(target.dataset.id)}/letter-mode`, { mode: target.dataset.mode });
+    toast(target.dataset.mode === 'template'
+      ? 'This job will use your template. Prepare it again to rebuild the letter.'
+      : 'This job will have its letter written from your resume again when it is prepared.');
+    // The detail rail never redraws a section that holds focus (so typing is
+    // never lost); this button does, so step out, redraw, then put focus on
+    // the button that replaced it.
+    target.blur();
+    await loadDetail(target.dataset.id);
+    document.querySelector('.cl-grounding [data-action="letter-mode"]')?.focus();
+  },
   'open-email-jobs': () => openEmailJobs(),
   'email-copy': () => copyEmail(),
   'email-open': () => openInMailApp(),
@@ -310,6 +337,8 @@ export const ACTIONS = {
   },
   'submit-link': submitLink,
   'open-submit-dialog': (target) => openSubmitDialog(target.dataset.id),
+  'confirm-went-through': (target) => settleUnverified(target.dataset.id, true),
+  'not-submitted': (target) => settleUnverified(target.dataset.id, false),
   'set-view': (target) => setView(target.dataset.view, { nav: true }),
   'today-review': (target) => selectJob(target.dataset.id, { user: true }),
   'today-act': (target) => todayAct(target),
@@ -337,11 +366,14 @@ export const BUSY_ACTIONS = new Set([
   'profile-from-resume-create', 'profile-from-resume-keep', 'confirm-merge-selection',
   'profile-from-resume-reconsider', 'adopt-resume-titles', 'adopt-resume-skills',
   'restore-master', 'save-profile', 'save-question-answer', 'dismiss-question',
-  'save-answers', 'delete-answer', 'export-jobs', 'export-tracker', 'open-email-jobs', 'email-copy', 'clear-role-search',
+  'save-answers', 'delete-answer', 'backup-now',
+  'propose-rewrites', 'rewrite-accept', 'rewrite-reject', 'rewrite-accept-all', 'refine-rewrites',
+  'compare-versions', 'restore-version', 'letter-mode', 'inbox-sync', 'inbox-record', 'inbox-dismiss', 'inbox-draft', 'run-rerank', 'export-jobs', 'export-tracker', 'open-email-jobs', 'email-copy', 'clear-role-search',
   'batch-autofill', 'batch-prepare', 'batch-approve', 'batch-decide', 'compare',
   'decide', 'approve', 'reject-packet', 'assist', 'autofill-one', 'prepare-one',
   'check-link', 'save-note', 'today-act', 'decision-reason', 'fill-profile-from-resume', 'sweep-postings',
   'submit-add-url', 'submit-job-search', 'submit-link', 'confirm-submitted', 'confirm-go',
+  'confirm-went-through', 'not-submitted',
   'ws-act', 'ws-record', 'ws-undo-outcome', 'ws-record-form', 'ws-followup', 'ws-followup-set',
   'save-person', 'confirm-alt', 'person-add-anyway', 'remove-person',
 ]);
@@ -548,6 +580,26 @@ export async function submitLink() {
     }
     scheduleRefresh();
   } catch (err) { msg.className = 'st-blocked'; msg.textContent = err.message; }
+}
+
+/**
+ * Settle an unconfirmed submission without the dialog. "I submitted it
+ * myself" with no number lands here, and offering only that same button
+ * again went in a circle: nothing but a confirmation number could finish it.
+ * "Yes" is your confirmation; "No" takes it back to finishing it.
+ */
+export async function settleUnverified(id, wentThrough) {
+  try {
+    if (wentThrough) {
+      await postJson(`/api/jobs/${encodeURIComponent(id)}/mark-submitted`, { verified: true });
+      toast('Recorded as submitted.', 'good');
+    } else {
+      await postJson(`/api/jobs/${encodeURIComponent(id)}/not-submitted`, {});
+      toast('Not counted as submitted. Finish it in the browser, then retry auto-fill or record it.');
+    }
+    if (state.selectedId === id) await loadDetail(id);
+    scheduleRefresh(0);
+  } catch (err) { toast(err.message, 'bad'); }
 }
 
 export async function confirmSubmitted() {
