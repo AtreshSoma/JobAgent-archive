@@ -1918,6 +1918,28 @@ export function rejectJobPacket(db, jobId) {
 }
 
 /**
+ * Take back an approval (human action). Allowed until the application is
+ * being filled or was submitted; the packet returns to "needs review".
+ * @returns {{ id: string, approvalId: string, status: string }}
+ */
+export function unapproveJobPacket(db, jobId) {
+  const approval = db.getApprovalByJob?.(jobId);
+  if (!approval || approval.approval_status !== APPROVAL_STATUS.APPROVED) {
+    throw httpError(409, 'this packet is not approved, so there is nothing to take back');
+  }
+  const job = db.getJob?.(jobId);
+  if (job && (Number(job.applied) === 1 || ['submitted', 'submit_unverified', 'assist_started'].includes(job.status))) {
+    throw httpError(409, job.status === 'assist_started'
+      ? 'auto-fill is running for this job; cancel it first'
+      : 'this application was already submitted (or reported submitted), so its approval stays');
+  }
+  db.updateApprovalStatus(approval.id, { approval_status: APPROVAL_STATUS.PENDING, approved_by_user: 0, approved_at: null });
+  insertApprovalEvent(db, jobId, 'packet_unapproved', 'approval taken back', { approvalId: approval.id });
+  noteUserMutation();
+  return { id: jobId, approvalId: approval.id, status: APPROVAL_STATUS.PENDING };
+}
+
+/**
  * Take back an approval because what it covered has changed since. The packet
  * returns to "needs review" so the person sees it and approves it again.
  *

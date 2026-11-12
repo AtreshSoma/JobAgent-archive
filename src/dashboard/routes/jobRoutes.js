@@ -10,7 +10,7 @@
 import { markApplicationUserSubmitted, markApplicationVerified, retractApplicationSubmission } from '../../apply/applicationState.js';
 import { loadPacket } from '../../cli/commands.js';
 import { sanitizeErrorMessage } from '../../utils/failureRca.js';
-import { applyDecision, approveJobPacket, jobDetail, markSubmittedByHuman, noteUserMutation, recordOutcome, rejectJobPacket, retractSubmissionReport, setJobNote, undoDecision, undoOutcome, updateFollowUp } from '../data.js';
+import { applyDecision, approveJobPacket, unapproveJobPacket, jobDetail, markSubmittedByHuman, noteUserMutation, recordOutcome, rejectJobPacket, retractSubmissionReport, setJobNote, undoDecision, undoOutcome, updateFollowUp } from '../data.js';
 import { checkJobLink } from '../linkHealth.js';
 import { isAggregatorUrl, isSafeObservedApplicationUrl, readBody, sendJson } from '../httpHelpers.js';
 import { NOT_HANDLED } from './notHandled.js';
@@ -108,6 +108,11 @@ export async function handleJobRoutes(ctx, req, res, { url, path }) {
     }
     if (req.method === 'POST' && action === 'approve') {
       const result = approveJobPacket(ctx.db, jobId, { digest: ctx.approvalDigestFor?.(jobId) ?? null });
+      ctx.refreshTracker();
+      return sendJson(res, 200, result);
+    }
+    if (req.method === 'POST' && action === 'unapprove') {
+      const result = unapproveJobPacket(ctx.db, jobId);
       ctx.refreshTracker();
       return sendJson(res, 200, result);
     }
