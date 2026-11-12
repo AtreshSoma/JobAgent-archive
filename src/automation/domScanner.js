@@ -134,9 +134,31 @@ function collectFields() {
   // and the filler typed the candidate's email into the newsletter form.
   const SEARCHY = /search|keyword|query|\bq\b|find.?jobs/i;
   const SIGNUP = /newsletter|subscribe|subscription|job.?alert|talent.?(?:community|network)|get.?notified|sign.?up.?for|mailing.?list/i;
-  const incidentalReason = (el) => {
+  // A site's DISPLAY-language picker (Rippling's job pages carry one). Counted
+  // as an application question, it made a job description look like a form,
+  // so "Apply now" was never taken as the way in and the run stopped on the
+  // posting with "resume upload input not found" (2026-11-12, Orion180).
+  // An application question about languages you SPEAK is not one of these: it
+  // is matched only by an interface phrase, or by a bare "Language" select
+  // whose options are language names or locale codes.
+  const UI_LANGUAGE = /\b(?:display|site|page|interface|website|portal|ui|app)\s+language\b|\b(?:change|select|choose|switch)\s+(?:the\s+|your\s+)?language\b/i;
+  const BARE_LANGUAGE = /^\s*(?:language|lang|locale|languages?\s*\/\s*locale)\s*\*?\s*$/i;
+  const LANGUAGE_OPTION = /^(?:english|espa[nñ]ol|spanish|deutsch|german|fran[cç]ais|french|portugu[eê]s|portuguese|italiano|italian|nederlands|dutch|polski|svenska|dansk|norsk|suomi|t[uü]rk[cç]e|日本語|中文|简体中文|繁體中文|한국어|русский|العربية|हिन्दी|bahasa(?:\s+\w+)?|tiếng việt|ελληνικά|čeština|magyar|română)\b/i;
+  const LOCALE_CODE = /^[a-z]{2,3}(?:[-_][a-z]{2,4})?$/i;
+  const isLanguagePicker = (el, label) => {
+    if (el.tagName !== 'SELECT') return false;
+    const text = String(label || '').trim();
+    if (UI_LANGUAGE.test(text)) return true;
+    if (!BARE_LANGUAGE.test(text) && !/^(?:lang|locale|language)$/i.test(el.name || el.id || '')) return false;
+    const opts = Array.from(el.options || []);
+    const languageLike = opts.filter((o) => LANGUAGE_OPTION.test((o.textContent || '').trim()) || LOCALE_CODE.test(o.value || '')).length;
+    return languageLike >= 2 && languageLike >= opts.length / 2;
+  };
+
+  const incidentalReason = (el, label) => {
     const type = (el.getAttribute('type') || '').toLowerCase();
     const hint = [el.name, el.id, el.getAttribute('placeholder'), el.getAttribute('aria-label')].join(' ');
+    if (isLanguagePicker(el, label)) return 'language-picker';
     if (type === 'search' || el.closest('[role="search"], search')) return 'search';
     // Bot traps: a text box no person can see or reach (Oracle Recruiting's
     // "honey-pot" sits in a zero-height, overflow-hidden row, aria-hidden and
@@ -299,7 +321,7 @@ function collectFields() {
     if (!el && field.kind === 'radio' && field.options?.[0]?.selector) {
       try { el = document.querySelector(field.options[0].selector); } catch { el = null; }
     }
-    const reason = el ? incidentalReason(el) : null;
+    const reason = el ? incidentalReason(el, field.label) : null;
     if (reason) field.incidental = reason;
   }
   return out;

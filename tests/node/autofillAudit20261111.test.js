@@ -220,6 +220,33 @@ describe('assistApply on the audit pages (real Chromium, local files, nothing se
     expect(result.filled.map((f) => f.field)).toEqual(expect.arrayContaining(['email', 'phone']));
   }, 60000);
 
+  it('a site display-language picker is page chrome: "Apply now" is still the way in (2026-11-12, Rippling)', async (ctx) => {
+    if (!available) return ctx.skip();
+    const resume = join(FIXTURES, 'sample_resume.txt');
+    const { result, page } = await run('language_picker_posting.html', {
+      packet: { fillPlan: { steps: [], uploads: [{ type: 'resume', path: resume, required: true }] } },
+    });
+    expect(page.url()).toMatch(/language_picker_apply\.html$/);
+    expect(result.uploads.uploaded.map((u) => u.type)).toEqual(['resume']);
+    expect(result.blockers.join(' ')).not.toMatch(/upload input not found/);
+    expect(await page.evaluate(() => window.__submitted === true)).toBe(false);
+    // The application's own language question is still a question.
+    const labels = (await scanFields(page)).filter((f) => !f.incidental).map((f) => f.label);
+    expect(labels).toContain('What languages do you speak?');
+    expect(labels).not.toContain('Display language');
+  }, 60000);
+
+  it('a page with no form and no way in says so, instead of "upload input not found"', async (ctx) => {
+    if (!available) return ctx.skip();
+    const resume = join(FIXTURES, 'sample_resume.txt');
+    const { result } = await run('salary_thanks.html', {
+      packet: { fillPlan: { steps: [], uploads: [{ type: 'resume', path: resume, required: true }] } },
+    });
+    expect(result.status).toBe(LIFECYCLE.ASSIST_BLOCKED);
+    expect(result.blockers.join(' ')).toMatch(/no application form found/);
+    expect(result.blockers.join(' ')).not.toMatch(/upload input not found/);
+  }, 60000);
+
   it('AF-09: a yes/no typeahead gets the choice, not the sentence, and the commit counts as filled', async (ctx) => {
     if (!available) return ctx.skip();
     const { result, page } = await run('react_select_yes_no.html');

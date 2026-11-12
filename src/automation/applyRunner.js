@@ -740,7 +740,12 @@ export async function assistApply({
       const advance = await findAdvanceControl(scope, {
         allowApplyStart: scanned.length === 0 && result.filled.length === 0,
       });
-      if (!advance) {
+      // A page with nothing of the application on it and no way forward is
+      // reported as exactly that further down ("no application form found",
+      // "sign-in required"). Reporting the resume input missing first sent
+      // people looking for a broken upload on what was the job description.
+      const nothingHere = scanned.length === 0 && result.filled.length === 0 && uploadedTypes.size === 0;
+      if (!advance && !nothingHere) {
         if (pendingRequiredBlocker) stepBlockers.push(pendingRequiredBlocker);
         for (const blocker of pendingUploadBlockers) {
           stepBlockers.push(blocker);
