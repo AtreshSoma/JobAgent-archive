@@ -145,11 +145,26 @@ function collectFields() {
   const BARE_LANGUAGE = /^\s*(?:language|lang|locale|languages?\s*\/\s*locale)\s*\*?\s*$/i;
   const LANGUAGE_OPTION = /^(?:english|espa[nñ]ol|spanish|deutsch|german|fran[cç]ais|french|portugu[eê]s|portuguese|italiano|italian|nederlands|dutch|polski|svenska|dansk|norsk|suomi|t[uü]rk[cç]e|日本語|中文|简体中文|繁體中文|한국어|русский|العربية|हिन्दी|bahasa(?:\s+\w+)?|tiếng việt|ελληνικά|čeština|magyar|română)\b/i;
   const LOCALE_CODE = /^[a-z]{2,3}(?:[-_][a-z]{2,4})?$/i;
+  // "United States (English)", "English (UK)", "Español": a current value
+  // that names a display language.
+  const LANGUAGE_VALUE = /\((?:english|espa[nñ]ol|spanish|deutsch|german|fran[cç]ais|french|portugu[eê]s|portuguese|italiano|italian|nederlands|dutch)\)/i;
   const isLanguagePicker = (el, label) => {
-    if (el.tagName !== 'SELECT') return false;
+    // Rippling's picker is NOT a <select>: it is a searchable combobox,
+    // <input role="combobox" aria-label="Display language" value="United States (English)">.
+    // Recognising only <select> left the real page unchanged (2026-11-12, retry still blocked).
+    const role = (el.getAttribute('role') || '').toLowerCase();
+    const isSelect = el.tagName === 'SELECT';
+    const isCombo = el.tagName === 'INPUT' && (role === 'combobox'
+      || (el.getAttribute('aria-haspopup') || '').toLowerCase() === 'listbox'
+      || ['list', 'both'].includes((el.getAttribute('aria-autocomplete') || '').toLowerCase()));
+    if (!isSelect && !isCombo) return false;
     const text = String(label || '').trim();
-    if (UI_LANGUAGE.test(text)) return true;
+    if (UI_LANGUAGE.test(text) || UI_LANGUAGE.test(el.getAttribute('aria-label') || '')) return true;
     if (!BARE_LANGUAGE.test(text) && !/^(?:lang|locale|language)$/i.test(el.name || el.id || '')) return false;
+    if (isCombo) {
+      const value = String(el.value || '').trim();
+      return LANGUAGE_VALUE.test(value) || LANGUAGE_OPTION.test(value) || LOCALE_CODE.test(value);
+    }
     const opts = Array.from(el.options || []);
     const languageLike = opts.filter((o) => LANGUAGE_OPTION.test((o.textContent || '').trim()) || LOCALE_CODE.test(o.value || '')).length;
     return languageLike >= 2 && languageLike >= opts.length / 2;

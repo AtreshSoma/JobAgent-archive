@@ -17,6 +17,7 @@ import { pathToFileURL } from 'node:url';
 import { assistApply } from '../../src/automation/applyRunner.js';
 import { createBrowserSession } from '../../src/automation/browser.js';
 import { scanFields } from '../../src/automation/domScanner.js';
+import { uploadFiles } from '../../src/automation/uploadRunner.js';
 import { classifyLabel } from '../../src/apply/formPrefill.js';
 import {
   answerScreeningQuestion, foreignCountryIn, mainClause, payPeriodOf, sensitiveTopic,
@@ -234,6 +235,48 @@ describe('assistApply on the audit pages (real Chromium, local files, nothing se
     const labels = (await scanFields(page)).filter((f) => !f.incidental).map((f) => f.label);
     expect(labels).toContain('What languages do you speak?');
     expect(labels).not.toContain('Display language');
+  }, 60000);
+
+  it('a display-language COMBOBOX (Rippling\'s real markup) is page chrome; the "Apply now" button is clicked', async (ctx) => {
+    if (!available) return ctx.skip();
+    const resume = join(FIXTURES, 'sample_resume.txt');
+    const { result, page } = await run('language_combobox_posting.html', {
+      packet: { fillPlan: { steps: [], uploads: [{ type: 'resume', path: resume, required: true }] } },
+    });
+    expect(page.url()).toMatch(/language_picker_apply\.html$/);
+    expect(result.uploads.uploaded.map((u) => u.type)).toEqual(['resume']);
+    expect(result.blockers.join(' ')).not.toMatch(/upload input not found/);
+    expect(await page.evaluate(() => window.__submitted === true)).toBe(false);
+  }, 60000);
+
+  it('a bare "Language" combobox counts as page chrome only when its value names a display language', async (ctx) => {
+    if (!available) return ctx.skip();
+    const { page } = await run('language_combobox_posting.html');
+    await page.setContent(`<form>
+      <label for="a">Language</label><input id="a" role="combobox" aria-autocomplete="list" value="English (UK)">
+      <label for="b">Language</label><input id="b" role="combobox" aria-autocomplete="list" value="">
+      <label for="c">Display language</label><input id="c" type="text" value="English">
+    </form>`);
+    const byId = Object.fromEntries((await scanFields(page)).map((f) => [f.selector, f.incidental ?? null]));
+    expect(byId['#a']).toBe('language-picker');
+    expect(byId['#b']).toBeNull(); // an empty "Language" question is a real question
+    expect(byId['#c']).toBeNull(); // a plain text box is never a picker
+  }, 60000);
+
+  it('Rippling file slots are named through their dropzone label: resume and cover letter each go to their own slot', async (ctx) => {
+    if (!available) return ctx.skip();
+    const { page } = await run('language_combobox_posting.html');
+    await page.goto(pageUrl('rippling_upload_slots.html'));
+    const resume = join(FIXTURES, 'sample_resume.txt');
+    // Cover letter listed FIRST, and no selector hints: only the page's own words decide.
+    const out = await uploadFiles(page, { uploads: [
+      { type: 'coverLetter', path: resume, required: true },
+      { type: 'resume', path: resume, required: true },
+    ] });
+    expect(out.blockers).toEqual([]);
+    const slot = Object.fromEntries(out.uploaded.map((u) => [u.type, u.selector]));
+    expect(slot).toEqual({ resume: 'input[type="file"] >> nth=0', coverLetter: 'input[type="file"] >> nth=1' });
+    expect(out.uploaded.every((u) => u.matchedBy === 'label' && u.verified === true)).toBe(true);
   }, 60000);
 
   it('a page with no form and no way in says so, instead of "upload input not found"', async (ctx) => {

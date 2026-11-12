@@ -70,13 +70,16 @@ function collectFileInputs(hints) {
   const inputs = Array.from(document.querySelectorAll('input[type="file"]'));
   inputs.forEach((el, index) => {
     const parts = [];
-    for (const lab of Array.from(el.labels || [])) parts.push(text(lab));
-    parts.push(el.getAttribute('aria-label') || '');
-    for (const attr of ['aria-labelledby', 'aria-describedby']) {
-      for (const id of (el.getAttribute(attr) || '').split(/\s+/).filter(Boolean)) {
-        parts.push(text(document.getElementById(id)));
-      }
-    }
+    // Rippling wraps the input in a dropzone <label> whose own text is only
+    // "Drop or select (.doc / .docx / .pdf)"; the field's name ("Résumé",
+    // "Cover letter") is on the element that LABEL points at with
+    // aria-labelledby. Reading only the label's text left both slots unnamed
+    // (2026-11-12, Orion180).
+    const referenced = (node) => ['aria-labelledby', 'aria-describedby']
+      .flatMap((attr) => (node.getAttribute(attr) || '').split(/\s+/).filter(Boolean))
+      .map((id) => text(document.getElementById(id)));
+    for (const lab of Array.from(el.labels || [])) parts.push(text(lab), ...referenced(lab));
+    parts.push(el.getAttribute('aria-label') || '', ...referenced(el));
     const legend = el.closest('fieldset')?.querySelector('legend');
     if (legend) parts.push(text(legend));
     // Nearest ancestor that holds exactly this one file input: its own label
@@ -89,7 +92,7 @@ function collectFileInputs(hints) {
       if (lab && text(lab)) { parts.push(text(lab).slice(0, 120)); break; }
     }
     parts.push(el.id || '', el.name || '', el.getAttribute('data-automation-id') || '',
-      el.closest('[id]')?.id || '');
+      el.getAttribute('data-testid') || '', el.closest('[id]')?.id || '');
     const matches = [];
     for (const [type, sel] of Object.entries(hints || {})) {
       if (!sel) continue;
