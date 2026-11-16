@@ -160,8 +160,18 @@ export function getRuntimeSettings(env = process.env) {
     // How many multi-step pages LIVE_ASSIST will advance through (clicking only
     // safe Next/Continue/Review controls) before it stops for the human.
     assistMaxSteps: Math.max(1, Number.parseInt(env.ASSIST_MAX_STEPS ?? '8', 10) || 8),
+    // When a headed auto-fill run lands on a sign-in or CAPTCHA page, wait up to
+    // this many seconds for YOU to clear it in the open window, then continue
+    // (audit A2). 0 = off: the run stops at the wall, as before. Headed runs only.
+    assistWaitForWallSeconds: Math.max(0, Number.parseInt(env.ASSIST_WAIT_FOR_WALL_SECONDS ?? '0', 10) || 0),
+    // How many applications a batch may fill at once, each in its own tab of one
+    // browser, never two on the same host (audit A11). 1 = one at a time (default); at most 3.
+    assistConcurrency: Math.min(3, Math.max(1, Number.parseInt(env.ASSIST_CONCURRENCY ?? '1', 10) || 1)),
     // Also export a PDF next to each tailored .docx resume (most ATS prefer PDF).
     resumeExportPdf: String(env.RESUME_EXPORT_PDF ?? 'true').trim().toLowerCase() !== 'false',
+    // Fit tailored resumes to the page limit by LibreOffice's render, when it
+    // is installed, instead of the estimate alone (audit R6).
+    resumeMeasurePages: String(env.RESUME_MEASURE_PAGES ?? 'true').trim().toLowerCase() !== 'false',
     // ── Freshness (prioritize recent postings) ──────────────────────────────
     // Primary recency window for discovered jobs. One of:
     //   LAST_24_HOURS | LAST_3_DAYS | LAST_7_DAYS | LAST_14_DAYS | LAST_30_DAYS | ALL

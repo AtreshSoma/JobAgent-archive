@@ -18,6 +18,8 @@
  *     UI can show exactly WHY a job ranked where it did.
  */
 
+import { loadRoleFamilies, titleFamilies } from '../profile/roleFamilies.js';
+import { payFields, payLabel } from '../scoring/payFields.js';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -41,7 +43,7 @@ import {
   allowedOutcomes, applicationMetrics, conversionBreakdown, canRecordOutcome, daysBetween, isIsoDay, replayFollowUps, replayOutcomes, stageOf,
   NO_OUTCOME_EXPORT, outcomeEventsByJob, outcomeExport, weeklySummary,
 } from '../domain/applicationOutcome.js';
-import { findPlaceholders } from '../config/placeholders.js';
+import { setupProgress } from '../config/setupProgress.js';
 import { csvCell } from '../reports/csv.js';
 import { masterResumeFile, workspacePaths } from '../profile/workspace.js';
 import { letterModeFor } from '../apply/letterMode.js';
@@ -50,8 +52,17 @@ import { extractHiddenClauses } from '../scoring/hiddenClauses.js';
 import { applicationAccess, openQuestionsFor, signInGroups } from '../apply/autofillReadiness.js';
 import { loadQuestionQueue } from '../apply/questionQueue.js';
 import { evidenceFor, masterResumeLines } from '../resume/evidenceMap.js';
+import { scoringVocabulary } from '../scoring/scorer.js';
+import { corpusFrequency, requirementPhrases } from '../scoring/requirementPhrases.js';
 import { employerHistory } from './employerHistory.js';
 import { preferenceProposals } from './preferenceProposals.js';
+
+/**
+ * How to install the form-filling browser, without a command line (S1). The
+ * launchers check for it on every start and offer the download
+ * (scripts/prepareLaunch.mjs), so that is the way in from the dashboard.
+ */
+export const BROWSER_INSTALL_FIX = 'Close JobAgent and open it again from its launcher, and say yes when it offers to download the browser (about 150 MB). Then retry.';
 
 // The status vocabulary and the pure per-row rules moved to src/domain so the
 // tracker, reports and CLI can use them without importing this whole data
@@ -203,7 +214,7 @@ function explainStatusRaw(job = {}, appStatus = '', approval = null) {
   switch (appStatus) {
     case APP_STATUS.NEEDS_DESCRIPTION:
       return 'The source gave only a title and no job description, so this row has NOT been judged on fit. '
-        + 'Any score shown is provisional. Run `npm run enrich` to fetch the descriptions, after which it '
+        + 'Any score shown is provisional. Data quality → Read descriptions now fetches them, after which it '
         + 'will be scored properly.';
     case APP_STATUS.SUBMIT_UNVERIFIED:
       // Two very different ways to land here: our own click with no proof it
@@ -273,7 +284,7 @@ export function classifyAttention(job = {}, appStatus = '') {
   };
   if (ENVIRONMENT_FAILURE_RE.test(reason)) return {
     kind: 'setup_browser', label: SETUP_BROWSER_LABEL,
-    summary: 'Auto-fill can’t start: the Playwright browser is not installed. Run: npx playwright install chromium, then retry.',
+    summary: `Auto-fill can’t start: the Playwright browser is not installed. ${BROWSER_INSTALL_FIX}`,
     retryable: true,
   };
   if (/captcha|verification challenge|human verification/.test(reason)) return {
@@ -711,6 +722,10 @@ export const BOARD_VIEWS = Object.freeze({
   // holds both. `blocked` stays as it was: "Unblock applications" counts it.
   needs_you: (r) => VIEW_BLOCKED.has(r.appStatus) || r.appStatus === APP_STATUS.SUBMIT_UNVERIFIED,
   submitted: (r) => r.appStatus === APP_STATUS.SUBMITTED,
+  // Archived jobs had no tab: they were reachable only through the status
+  // dropdown, so archiving looked like deleting, with no visible way back. This
+  // is the one view that shows CLOSED rows, so it is left out of OPEN_ONLY_VIEWS.
+  archived: (r) => r.appStatus === APP_STATUS.ARCHIVED,
 });
 
 /**
@@ -725,7 +740,7 @@ const BOARD_VIEW_ENTRIES = Object.entries(BOARD_VIEWS);
  * row, so a request scoped to one of them may read the cheap open-only base set
  * (see openBoardRows) instead of the whole table.
  *
- * Every view above qualifies today: each either tests `!CLOSED_SET.has(...)`
+ * Every view above except `archived` qualifies: each either tests `!CLOSED_SET.has(...)`
  * directly or matches only specific non-closed statuses. That is a property of
  * the predicates, not a promise about them — so `dashboardFilters` has a test
  * that drives every listed view against the full cartesian product of the fields
@@ -733,7 +748,9 @@ const BOARD_VIEW_ENTRIES = Object.entries(BOARD_VIEWS);
  * combination matches. Add a view that can surface a closed row and either keep
  * it out of this set or that test will catch it.
  */
-export const OPEN_ONLY_VIEWS = new Set(Object.keys(BOARD_VIEWS));
+/** Views that exist to show CLOSED rows. Every view is in exactly one of these two sets. */
+export const CLOSED_ROW_VIEWS = new Set(['archived']);
+export const OPEN_ONLY_VIEWS = new Set(Object.keys(BOARD_VIEWS).filter((key) => !CLOSED_ROW_VIEWS.has(key)));
 
 /** Count rows per board view (each equals what clicking that tab shows). */
 export function countViews(rows = []) {
@@ -798,6 +815,9 @@ function boardRow(job, approval, now) {
     employmentCategory: job.employment_category ?? null,
     employmentLabel: EMPLOYMENT_LABELS[job.employment_category] ?? null,
     compensation: job.compensation_text ?? null,
+    // The parsed pay range (audit D6), annual figures; null when none is stated.
+    payMin: job.pay_min ?? null,
+    payMax: job.pay_max ?? null,
     remote: /\bremote\b/.test(haystack),
     // Where the role actually is, resolved once here so the board filter, the
     // coverage stats, and any future column all read the SAME answer rather
@@ -1123,7 +1143,15 @@ function computeDashboardStats(db, now, timeZone = null) {
     stats.totals.blockedSetup = (db.listAttentionBlockers?.() ?? [])
       .filter((row) => isEnvironmentFailure(row)).length;
   } catch { stats.totals.blockedSetup = 0; }
-  stats.nextActions = buildNextActions(stats.totals, stats.views.best);
+  // Has any search ever run? A stored job says so; so does a logged run that
+  // found nothing. Without this, a fresh install was told "nothing new has been
+  // found in the last 24 hours" before it had ever looked.
+  let searched = stats.totals.jobsTracked > 0;
+  if (!searched) {
+    try { searched = (db.listRunLogs?.({ limit: 1 }) ?? []).length > 0; } catch { searched = false; }
+  }
+  stats.everSearched = searched;
+  stats.nextActions = buildNextActions(stats.totals, stats.views.best, { everSearched: searched });
   return stats;
 }
 
@@ -1132,7 +1160,7 @@ function computeDashboardStats(db, now, timeZone = null) {
  * board filter that shows exactly those jobs.
  * @returns {Array<{ text: string, filter: object|null }>}
  */
-export function buildNextActions(totals, strongUntriaged = 0) {
+export function buildNextActions(totals, strongUntriaged = 0, { everSearched = true } = {}) {
   const actions = [];
   /*
    * Each entry carries BOTH a full sentence and its parts.
@@ -1205,9 +1233,8 @@ export function buildNextActions(totals, strongUntriaged = 0) {
     add({
       count: setup,
       verb: SETUP_BROWSER_LABEL,
-      detail: 'auto-fill cannot start until it is installed: npx playwright install chromium',
-      text: `${setup} auto-fill(s) could not start because the Playwright browser is not installed — run `
-        + '"npx playwright install chromium", then retry',
+      detail: 'auto-fill cannot start until it is installed: open JobAgent again from its launcher, which offers to download it',
+      text: `${setup} auto-fill(s) could not start because the Playwright browser is not installed. ${BROWSER_INSTALL_FIX}`,
       filter: { view: 'blocked' },
       kind: 'system',
     });
@@ -1264,7 +1291,16 @@ export function buildNextActions(totals, strongUntriaged = 0) {
   // A plain "0 discovered today" right after midnight is normal and not worth a
   // warning (this avoids the confusing "0 discovered today" vs "many posted
   // last 24h" mismatch users saw).
-  if ((totals.discoveredLast24h ?? totals.discoveredToday) === 0) {
+  if (!everSearched) {
+    add({
+      count: null,
+      verb: 'Run your first search',
+      detail: 'No search has run yet. Finding and scoring jobs works before setup is finished.',
+      text: 'No search has run yet. Run your first search to fill the board',
+      filter: null,
+      kind: 'system',
+    });
+  } else if ((totals.discoveredLast24h ?? totals.discoveredToday) === 0) {
     add({
       count: null,
       verb: 'Find new jobs',
@@ -1306,6 +1342,8 @@ const SORTS = {
   // `createdAt` is set on insert and deliberately never updated on
   // re-discovery, so it is a true first-seen timestamp.
   discovered: thenById((a, b) => String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? ''))),
+  // The top of the stated pay range, highest first; no stated pay last (audit D6).
+  pay: thenById((a, b) => (b.payMax ?? -1) - (a.payMax ?? -1)),
 };
 
 /**
@@ -1699,6 +1737,23 @@ function boardPageRows(db, filters = {}) {
 }
 
 /**
+ * How many recent stored postings mention a phrase (R12), from a sample of the
+ * 2,000 newest descriptions, kept for ten minutes per database.
+ */
+const FREQUENCY = new WeakMap();
+function postingFrequency(db) {
+  const raw = db?.db && typeof db.db.prepare === 'function' ? db.db : null;
+  if (!raw) return null;
+  const hit = FREQUENCY.get(db);
+  if (hit && Date.now() - hit.at < 600_000) return hit.frequency;
+  const texts = raw.prepare("SELECT jd_text FROM jobs WHERE jd_text IS NOT NULL AND jd_text <> '' ORDER BY created_at DESC LIMIT 2000")
+    .all().map((r) => r.jd_text);
+  const frequency = corpusFrequency(texts);
+  FREQUENCY.set(db, { at: Date.now(), frequency });
+  return frequency;
+}
+
+/**
  * Full detail for one job: board row + packet summary (blockers, prefill plan,
  * screening answers, uploads) read from the packet JSON when present.
  *
@@ -1826,7 +1881,30 @@ export function jobDetail(db, jobId, deps = {}) {
       if (!root) return null;
       const lines = masterResumeLines(root);
       if (!lines.length) return null;
-      return evidenceFor([...jsonList(job.matched_keywords), ...jsonList(job.missing_keywords)], lines);
+      const scoring = deps.config?.scoring ?? {};
+      return evidenceFor([...jsonList(job.matched_keywords), ...jsonList(job.missing_keywords)], lines, {
+        aliases: scoring.evidenceAliases ?? {}, vocabulary: scoringVocabulary(scoring),
+      });
+    })(),
+    // The stated pay, parsed (audit D6). "Not stated" is a real answer.
+    pay: (() => {
+      const row = job.pay_checked ? job : { ...job, ...payFields({ compensationText: job.compensation_text, jdText: job.jd_text }) };
+      return { min: row.pay_min ?? null, max: row.pay_max ?? null, period: row.pay_period ?? null, source: row.pay_source ?? null, label: payLabel(row) };
+    })(),
+    // What the posting's requirement sections name that the vocabulary does
+    // not know, word for word, ranked by how many stored postings ask for it
+    // (R12). The person can add one to what is looked for.
+    unlistedRequirements: (() => {
+      try {
+        const scoring = deps.config?.scoring ?? {};
+        const root = deps.root ?? deps.config?.root ?? null;
+        return requirementPhrases(job.jd_text ?? '', {
+          vocabulary: scoringVocabulary(scoring),
+          aliases: scoring.evidenceAliases ?? {},
+          resumeLines: root ? masterResumeLines(root) : [],
+          frequency: postingFrequency(db),
+        });
+      } catch { return []; }
     })(),
     openQuestions: (() => {
       const root = deps.root ?? deps.config?.root ?? null;
@@ -2284,6 +2362,8 @@ function workspaceItem(row, events, { today, timeZone, history = false }) {
     // Needs an employer account (Workday, Oracle, iCIMS…) or none (Greenhouse…).
     access: applicationAccess(row).kind,
     attentionKind: row.attention?.kind ?? null,
+    // F9: was the resume tailored for this job, or the master sent as it is?
+    resumeKind: row.resumeStatus === 'tailored' ? 'Tailored resume' : 'Master resume',
   };
   item.nextAction = workspaceNextAction(row, stage, followUp);
   if (history) {
@@ -2340,6 +2420,13 @@ function workspaceParts(db, now, config) {
     if (key) perCompany.set(key, (perCompany.get(key) ?? 0) + 1);
   }
   for (const item of items) item.sameCompany = Math.max(0, (perCompany.get(companyKey(item.company)) ?? 1) - 1);
+  // F9: the kind of role each submitted application was for, from its title.
+  try {
+    const taxonomy = loadRoleFamilies(config?.root ?? undefined);
+    for (const item of items) {
+      if (item.appStatus === APP_STATUS.SUBMITTED) item.roleFamily = titleFamilies(item.title ?? '', taxonomy).top?.label ?? null;
+    }
+  } catch { /* the role taxonomy is optional here */ }
   items.sort(workspaceOrder);
   return { rows, items, today, events };
 }
@@ -2800,22 +2887,21 @@ export function systemNotices(rows = [], config = null, { browserAvailable = nul
       code: 'browser_unavailable',
       severity: 'error',
       message: 'Auto-fill can’t start: the Playwright browser is not installed',
-      fix: 'npx playwright install chromium',
+      fix: BROWSER_INSTALL_FIX,
     });
   }
   if (config) {
-    let found = null;
-    try { found = findPlaceholders(config); } catch { found = null; }
-    if (found && !found.ok) {
-      const labels = [...new Set(found.placeholders.map((p) => p.label))];
-      const shown = labels.slice(0, 5).join(', ') + (labels.length > 5 ? `, and ${labels.length - 5} more` : '');
+    let setup;
+    try { setup = setupProgress(config); } catch { setup = null; }
+    if (setup && !setup.ok) {
+      // One setup card, not one line per stored copy (S1). `setup.ok` is
+      // findPlaceholders(config).ok, so applying is held exactly as before.
       notices.push({
         code: 'profile_placeholders',
-        severity: 'error',
-        message: `${labels.length} profile value(s) are still template text: ${shown}. `
-          + 'Applications will not be prepared until they are real.',
-        fix: 'Open Settings → Application profile (or edit the search profile) and replace each highlighted field '
-          + 'with your real, truthful value.',
+        severity: 'info',
+        message: `Finish setup to apply: ${setup.done} of ${setup.total} done`,
+        fix: 'Applying stays on hold until these hold your real details. Finding and scoring jobs keep working.',
+        setup,
       });
     }
   }
@@ -3206,7 +3292,6 @@ export function buildDocuments(db, {
         tailoring: tailoring ? {
           changes,
           gaps,
-          summaryLine: tailoring.summaryLine ?? null,
           changeCount: changes.length,
           gapCount: gaps.length,
           pageCount: tailoring.pageCount ?? null,

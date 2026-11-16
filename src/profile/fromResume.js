@@ -258,7 +258,7 @@ const ACHIEVEMENT_RE = /^(?:[•▪◦·*-]\s*)?(?:[A-Z][a-z]+ed|Built|Led|Ran|W
  * achievement bullets, copied VERBATIM.
  *
  * A role opens with a header line ("Senior Data Engineer, Finance Analytics |
- * Capgemini America") followed by a line holding a date range ("Raleigh, NC
+ * Fabrikam Consulting") followed by a line holding a date range ("Raleigh, NC
  * (Remote) | April 2022 - Present"); either order of the two halves is read.
  * Nothing is paraphrased or inferred — a field the resume does not state is
  * left empty, which is what lets the profile carry the resume's own words

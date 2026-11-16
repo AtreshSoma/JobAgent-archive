@@ -70,6 +70,9 @@
   --glass-strong: rgba(17, 22, 30, .9);
   --glass-line: rgba(160, 190, 230, .12);
   --glass-hi: rgba(255, 255, 255, .05);
+  --lg-rim-top: rgba(255, 255, 255, .2);
+  --lg-rim-bottom: rgba(255, 255, 255, .03);
+  --lg-channel: rgba(0, 0, 0, .28);
   /* Liquid Glass (Find jobs): fill, blue-to-cyan tint, edge, rim, inner
      shade, the pointer's light, hover wash and drop. */
   --lg-fill: rgba(255, 255, 255, .06);
@@ -83,8 +86,9 @@
   --lg-drop: 0 1px 2px rgba(2, 5, 12, .4), 0 6px 16px rgba(2, 5, 12, .35);
   /* A faint wash of the accent behind the whole page, so the glass has
      something to refract. At these opacities it reads as light, not colour. */
-  --ambient-a: rgba(77, 159, 255, .07);
-  --ambient-b: rgba(92, 200, 232, .04);
+  --ambient-a: rgba(77, 159, 255, .1);
+  --ambient-b: rgba(92, 200, 232, .06);
+  --ambient-c: rgba(62, 207, 142, .05);
 
   /* elevation */
   /* Tinted to the surface hue, not pure black.
@@ -94,6 +98,8 @@
      a pure-black shadow reads as a grey smudge; carrying the background's own
      hue into it keeps one consistent light source across both themes. */
   --shadow-sm: 0 1px 3px rgba(2, 5, 12, .5);
+  /* The shadow a docked bar (the sticky pager) casts up over the list. */
+  --dock-shade: rgba(2, 5, 12, .85);
   --shadow: 0 8px 24px rgba(2, 5, 12, .55);
   --shadow-lg: 0 24px 60px rgba(2, 5, 12, .7);
 
@@ -205,6 +211,9 @@
   --glass-strong: rgba(255, 255, 255, .9);
   --glass-line: rgba(16, 24, 40, .09);
   --glass-hi: rgba(255, 255, 255, .8);
+  --lg-rim-top: rgba(255, 255, 255, 1);
+  --lg-rim-bottom: rgba(16, 24, 40, .13);
+  --lg-channel: rgba(16, 24, 40, .055);
   --lg-fill: rgba(255, 255, 255, .6);
   --lg-tint-a: rgba(22, 104, 214, .14);
   --lg-tint-b: rgba(14, 134, 168, .06);
@@ -214,9 +223,11 @@
   --lg-spec: rgba(255, 255, 255, .85);
   --lg-hover: rgba(22, 104, 214, .07);
   --lg-drop: 0 1px 2px rgba(16, 24, 40, .08), 0 6px 16px rgba(16, 24, 40, .1);
-  --ambient-a: rgba(22, 104, 214, .06);
-  --ambient-b: rgba(14, 134, 168, .04);
+  --ambient-a: rgba(22, 104, 214, .09);
+  --ambient-b: rgba(14, 134, 168, .06);
+  --ambient-c: rgba(18, 150, 95, .05);
   --shadow-sm: 0 1px 2px rgba(16, 24, 40, .08);
+  --dock-shade: rgba(16, 24, 40, .14);
   --shadow: 0 8px 24px rgba(16, 24, 40, .12);
   --shadow-lg: 0 24px 60px rgba(16, 24, 40, .2);
   --sig-b: #2f8fd6;
@@ -264,6 +275,9 @@
     --glass-strong: rgba(255, 255, 255, .9);
     --glass-line: rgba(16, 24, 40, .09);
     --glass-hi: rgba(255, 255, 255, .8);
+    --lg-rim-top: rgba(255, 255, 255, 1);
+    --lg-rim-bottom: rgba(16, 24, 40, .13);
+    --lg-channel: rgba(16, 24, 40, .055);
     --lg-fill: rgba(255, 255, 255, .6);
     --lg-tint-a: rgba(22, 104, 214, .14);
     --lg-tint-b: rgba(14, 134, 168, .06);
@@ -273,9 +287,11 @@
     --lg-spec: rgba(255, 255, 255, .85);
     --lg-hover: rgba(22, 104, 214, .07);
     --lg-drop: 0 1px 2px rgba(16, 24, 40, .08), 0 6px 16px rgba(16, 24, 40, .1);
-    --ambient-a: rgba(22, 104, 214, .06);
-    --ambient-b: rgba(14, 134, 168, .04);
+    --ambient-a: rgba(22, 104, 214, .09);
+    --ambient-b: rgba(14, 134, 168, .06);
+    --ambient-c: rgba(18, 150, 95, .05);
     --shadow-sm: 0 1px 2px rgba(16, 24, 40, .08);
+    --dock-shade: rgba(16, 24, 40, .14);
     --shadow: 0 8px 24px rgba(16, 24, 40, .12);
     --shadow-lg: 0 24px 60px rgba(16, 24, 40, .2);
     --sig-b: #2f8fd6;
@@ -308,7 +324,10 @@ body::before {
   content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
   background:
     radial-gradient(900px 420px at 50% -120px, var(--ambient-a), transparent 70%),
-    radial-gradient(640px 360px at 100% 0, var(--ambient-b), transparent 70%);
+    radial-gradient(640px 360px at 100% 0, var(--ambient-b), transparent 70%),
+    /* Behind the switches and the filter bar, for their glass to frost. */
+    radial-gradient(720px 380px at 12% 26%, var(--ambient-c), transparent 70%),
+    radial-gradient(560px 300px at 46% 34%, var(--ambient-a), transparent 72%);
 }
 
 /* The browser's own surfaces belong to the palette too. */
@@ -674,6 +693,44 @@ button.icon { padding: 4px 7px; }
   .split.menu:has(> .split-main:active:not(:disabled)), .split.menu:has(> .split-toggle:active) { transform: none; }
 }
 
+/* ── Find jobs, the page's one primary action ──
+   The only solid, saturated control in the header: contrast, not a louder hue,
+   is what draws the eye (orange already means "needs your attention" here, so
+   an orange button would read as a warning and blunt every real one). The
+   pointer still lights the glass; the rim still catches the light. */
+.split.menu { box-shadow: 0 1px 2px rgba(2, 8, 20, .18), 0 8px 18px -8px color-mix(in srgb, var(--accent) 60%, transparent); }
+.split.menu::before {
+  background:
+    radial-gradient(70% 130% at var(--gx) -10%, rgba(255, 255, 255, .34), transparent 70%),
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 86%, white 14%), var(--accent));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 72%, black 28%), inset 0 1px 0 rgba(255, 255, 255, .3);
+}
+.split.menu > .split-main, .split.menu > .split-toggle,
+.split.menu > .split-main .ic, .split.menu .split-chev { color: var(--accent-ink); }
+.split.menu > .split-toggle::before { background: color-mix(in srgb, var(--accent-ink) 32%, transparent); }
+@media (hover: hover) and (pointer: fine) {
+  .split.menu > .split-main:hover:not(:disabled), .split.menu > .split-toggle:hover { background: color-mix(in srgb, var(--accent-ink) 12%, transparent); }
+}
+.split.menu > .split-toggle[aria-expanded="true"],
+.split.menu > .split-main:focus-visible, .split.menu > .split-toggle:focus-visible { background: color-mix(in srgb, var(--accent-ink) 14%, transparent); }
+.split.menu > .split-main:disabled, .split.menu > .split-main:disabled .ic { color: color-mix(in srgb, var(--accent-ink) 78%, var(--accent)); }
+/* A search is due (the last one is over a day old, or there has not been one):
+   an amber dot, the colour that means "needs you" everywhere on this page, and
+   a soft ring that calls three times and then rests. */
+.split.menu[data-stale] > .split-main::after {
+  content: ''; position: absolute; top: 5px; right: 4px; width: 7px; height: 7px; border-radius: 50%;
+  background: #ffb224; box-shadow: 0 0 0 2px var(--accent);
+}
+.split.menu[data-stale] { animation: cta-call 1.8s cubic-bezier(.2, .8, .2, 1) 1.2s 3; }
+@keyframes cta-call {
+  0% { box-shadow: 0 1px 2px rgba(2, 8, 20, .18), 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent); }
+  100% { box-shadow: 0 1px 2px rgba(2, 8, 20, .18), 0 0 0 12px transparent; }
+}
+@media (prefers-reduced-motion: reduce) { .split.menu[data-stale] { animation: none; } }
+@media (prefers-reduced-transparency: reduce) {
+  .split.menu::before { background: var(--accent); }
+}
+
 /* Menu items with a second line explaining what the action costs. */
 .menu-pop .mi-title { display: block; font-weight: 600; }
 .menu-pop .mi-sub { display: block; font-size: var(--fs-xs); color: var(--text-faint); margin-top: 1px; }
@@ -1003,7 +1060,8 @@ dialog { background: var(--surface); }
 
 /* Pipeline health, as plain facts. */
 .health {
-  display: flex; align-items: center; gap: var(--s3); flex-wrap: nowrap;
+  /* On the text's baseline, so a fact that starts with words lines up with one that starts with a number. */
+  display: flex; align-items: baseline; gap: var(--s3); flex-wrap: nowrap;
   /* The containing block for its .sr-only labels: without it they were placed
      against the page and escaped this strip's clipping, widening a 390px
      phone layout to 487px (a sideways scroll on every view). */
@@ -1018,7 +1076,8 @@ dialog { background: var(--surface); }
   white-space: nowrap; border-radius: var(--r-xs);
 }
 button.stat:hover { background: none; border-color: transparent; }
-.health .stat + .stat::before {
+/* Facts are divided by hairlines; the attention group is set apart by space alone. */
+.health > .stat + .stat::before {
   content: ''; width: 1px; height: 12px; background: var(--line);
   margin-right: var(--s3); align-self: center;
 }
@@ -1027,15 +1086,46 @@ button.stat:hover { background: none; border-color: transparent; }
 .stat.clickable:focus-visible { outline-offset: 3px; }
 .stat b { color: var(--text); font-size: var(--fs-sm); font-weight: 650; }
 .stat .l { font-size: var(--fs-sm); color: var(--text-dim); }
+/* A zero is a fact, not news. */
+.stat.is-zero b { color: var(--text-faint); font-weight: 550; }
+
+/* What needs you, in one rounded group at the row's end: each item a quiet
+   button with its tone's dot, then the way to the detail behind the numbers. */
+.health-attn {
+  display: flex; align-items: center; gap: 2px; flex: none; margin-left: auto;
+  padding: 2px; border: 1px solid var(--line); border-radius: var(--r-full);
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+}
+.health-attn > .stat { align-items: center; padding: 3px 11px; border-radius: var(--r-full); transition: background-color .15s ease; }
+.health-attn > button.stat:hover { background: color-mix(in srgb, var(--text) 7%, transparent); }
+.health-attn > .stat-link { padding-left: 12px; }
+/* The dot is the first item of the stat's own row, so no padding elsewhere can let it sit on the number. */
+.stat.attn::before, .stat.bad::before {
+  content: ''; flex: none; align-self: center; width: 6px; height: 6px; margin: 0 3px 0 3px; border-radius: 50%;
+  background: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft);
+}
+.stat.bad::before { background: var(--bad); box-shadow: 0 0 0 3px var(--bad-soft); }
 .stat.attn b, .stat.attn .l { color: var(--warn-text); }
 .stat.bad b, .stat.bad .l { color: var(--bad); }
-.stat.attn, .stat.bad {
-  border: 1px solid color-mix(in srgb, currentColor 55%, transparent);
-  border-radius: var(--r-full); padding: 1px 9px; color: var(--warn-text);
+.stat.attn.clickable:hover b, .stat.attn.clickable:hover .l { color: var(--warn-text); }
+.stat.bad.clickable:hover b, .stat.bad.clickable:hover .l { color: var(--bad); }
+/* A search more than a day old: said in the warning colour, not hidden in grey. */
+.stat-fresh.is-stale b, .stat-fresh.is-stale .l { color: var(--warn-text); }
+/* The connection is the row's first dot: healthy needs no words; lost, it says so. */
+.statusbar .conn.ok { font-size: 0; gap: 0; }
+.statusbar .conn.ok::before { width: 8px; height: 8px; }
+/* No spacer: the facts follow the dot, and the attention group takes the far end. */
+.statusbar .spacer { display: none; }
+.statusbar .health { flex: 1 1 auto; }
+/* The way to the detail behind every number: quiet until pointed at. */
+.stat-link .l { color: var(--text-dim); }
+.stat-link .chev {
+  width: 5px; height: 8px; margin-left: 3px; align-self: center;
+  background: var(--text-faint); clip-path: polygon(0 0, 40% 0, 100% 50%, 40% 100%, 0 100%, 60% 50%);
+  transition: translate .16s ease;
 }
-.stat.bad { color: var(--bad); }
-.stat.attn + .stat::before, .stat.bad + .stat::before,
-.stat + .stat.attn::before, .stat + .stat.bad::before { display: none; }
+.stat-link:hover .chev { background: var(--accent); translate: 2px 0; }
+@media (prefers-reduced-motion: reduce) { .stat-link .chev { transition: none; } }
 
 /* ─────────────────── view switch ───────────────────
    Today | All jobs, ahead of the stage tabs it gates. A segmented control,
@@ -1089,8 +1179,18 @@ button.stat:hover { background: none; border-color: transparent; }
 .tab .badge {
   background: var(--chip); color: var(--text-dim); border-radius: var(--r-full);
   padding: 0 6px; font-size: var(--fs-xs); min-width: 18px; text-align: center; line-height: 17px;
+  /* One weight whether or not its tab is selected, so the count never changes width. */
+  font-weight: 600; font-variant-numeric: tabular-nums;
 }
 .tab .badge.zero { background: transparent; color: var(--text-faint); padding: 0 2px; min-width: 0; }
+/* The selected weight's width, held by an invisible copy, so the row never
+   shifts when the weight changes. */
+.tab-label { display: inline-flex; flex-direction: column; align-items: center; }
+.tab-label::after {
+  /* `/ ""`: no alternative text, so a screen reader does not hear the label twice. */
+  content: attr(data-text) / ""; font-weight: 620; height: 0; overflow: hidden; visibility: hidden;
+  user-select: none; pointer-events: none;
+}
 .tab[aria-selected="true"] .badge:not(.zero) { background: var(--accent); color: var(--accent-ink); }
 .tab.urgent .badge { background: var(--warn); color: var(--on-warn); }
 
@@ -1127,9 +1227,10 @@ button.stat:hover { background: none; border-color: transparent; }
   }
   .tabs::-webkit-scrollbar, .health::-webkit-scrollbar { display: none; }
   .tabs .tab, .health .stat { flex: none; }
-  /* Something that needs you (unverified submits) leads the strip: scrolled
-     past the edge at 390px, it was the one fact nobody saw. */
-  .health .stat.bad { order: -1; }
+  /* What needs you leads the strip on a phone: scrolled past the edge at
+     390px, it was the one thing nobody saw. */
+  .health-attn { order: -1; margin-left: 0; margin-right: var(--s3); }
+  .health-attn > .stat { flex: none; }
   .statusbar .runbox { width: 100%; min-width: 0; }
   .statusbar .run-main { min-width: 0; flex: 1 1 auto; }
   .statusbar .spacer { display: none; }
@@ -1238,6 +1339,71 @@ button.stat:hover { background: none; border-color: transparent; }
 .notice-fix code, .setup-list code {
   font-family: var(--mono); font-size: var(--fs-sm); background: var(--surface-2);
   border: 1px solid var(--line-soft); border-radius: var(--r-xs); padding: 1px 6px;
+}
+/* The resume check in the Master resume dialog (F4). */
+.mr-findings { list-style: none; margin: var(--s2) 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.mr-finding { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: var(--s2); align-items: start; font-size: var(--fs-md); }
+.mr-finding-mark {
+  width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center;
+  font-size: var(--fs-sm); font-weight: 800; background: var(--accent-soft); color: var(--accent);
+}
+.mr-finding.is-ok .mr-finding-mark { background: var(--good-soft); color: var(--good); }
+.mr-finding.is-warn .mr-finding-mark { background: var(--warn-soft); color: var(--warn); }
+
+/* The setup card (S1). Setup is progress, not an error: a neutral surface,
+   one line by default, the steps on request and capped in height, so the job
+   list is always on the first screen. */
+.setup-progress {
+  background: var(--surface); border: 1px solid var(--line-soft); border-radius: var(--r-md);
+  padding: var(--s2) var(--s3);
+}
+.sp-line { display: flex; align-items: center; gap: var(--s2) var(--s3); min-height: 32px; }
+.sp-line > button { flex: none; }
+.sp-mark {
+  flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
+  font-size: var(--fs-sm); font-weight: 800; font-style: italic; background: var(--accent-soft); color: var(--accent);
+}
+.sp-title { margin: 0; font-size: var(--fs-md); font-weight: 500; flex: 1 1 auto; min-width: 0; }
+.sp-bar {
+  flex: 0 1 140px; height: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden;
+}
+.sp-bar > i { display: block; height: 100%; background: var(--accent); border-radius: inherit; min-width: 2px; }
+.sp-toggle { width: 32px; height: 32px; padding: 0; display: grid; place-items: center; }
+.sp-chev {
+  width: 8px; height: 8px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
+  transform: translateY(-2px) rotate(45deg); transition: transform .15s ease;
+}
+.setup-progress[data-open="true"] .sp-chev { transform: translateY(2px) rotate(-135deg); }
+.sp-body {
+  margin-top: var(--s2); padding-top: var(--s2); border-top: 1px solid var(--line-soft);
+  max-height: min(34vh, 320px); overflow-y: auto; overscroll-behavior: contain;
+}
+.sp-why { margin: 0 0 var(--s2); font-size: var(--fs-sm); }
+.sp-groups { display: flex; flex-direction: column; gap: 2px; }
+.sp-group > summary {
+  display: flex; align-items: center; gap: var(--s2); cursor: pointer; padding: 6px 4px;
+  border-radius: var(--r-xs); font-size: var(--fs-md); font-weight: 600;
+}
+.sp-group > summary:hover { background: var(--surface-2); }
+.sp-group-title { flex: 1 1 auto; min-width: 0; }
+.sp-group-count { font-weight: 500; color: var(--text-dim); font-variant-numeric: tabular-nums; font-size: var(--fs-sm); }
+.sp-group-count.is-done { color: var(--good); }
+.sp-items { list-style: none; margin: 0 0 var(--s2); padding: 0 0 0 var(--s4); }
+.sp-item {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--s2); align-items: center;
+  padding: 4px 0; font-size: var(--fs-md);
+}
+.sp-check { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line-strong); }
+.sp-item.is-done .sp-check { background: var(--good); border-color: var(--good); }
+.sp-item.is-done .sp-item-label { color: var(--text-dim); }
+.sp-item-text { display: flex; flex-direction: column; min-width: 0; }
+.sp-item-was { font-size: var(--fs-sm); overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: reduce) { .sp-chev { transition: none; } }
+/* A phone has no room for the bar on the line: it becomes the card's bottom edge. */
+@media (max-width: 560px) {
+  .setup-progress { position: relative; overflow: hidden; padding-bottom: calc(var(--s2) + 3px); }
+  .sp-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; border-radius: 0; }
+  .sp-bar > i { border-radius: 0; }
 }
 .setup-card {
   background: var(--surface); border: 1px solid var(--line-soft); border-radius: var(--r-md);
@@ -1728,8 +1894,13 @@ td.check { width: 34px; }
 .pagerbar {
   display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
   position: sticky; bottom: 0; z-index: 3;
-  background: color-mix(in srgb, var(--bg) 97%, transparent);
+  /* Opaque, not 97%: at 97% the rows scrolling underneath ghosted through the
+     counts and the First/Prev buttons, so the pager read as overlapping text.
+     A soft upward shadow says "docked over the list" instead of a hard seam. */
+  background: var(--bg);
   border-top: 1px solid var(--line-soft);
+  box-shadow: 0 -10px 18px -12px var(--dock-shade);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   margin-top: -1px;
 }
 /* Phones: neither the header nor the pager sticks. Together they held 41% of
@@ -2700,6 +2871,10 @@ kbd {
 .person-why, .pf-why { font-size: var(--fs-sm); align-self: center; min-width: 0; }
 .st-ok { color: var(--good); }
 .pf-hint { margin: 0 0 4px; }
+.notice-items { margin: 6px 0 0; padding-left: 18px; }
+.notice-items li { margin: 0 0 6px; }
+.notice-items .notice-fix { margin-top: 2px; }
+.prepare-problem { margin-top: var(--s2); }
 /* A config file path has no spaces; without this it pushed the dialog 10px wider than a phone. */
 .pf-path { overflow-wrap: anywhere; min-width: 0; }
 .chips-input {
@@ -2887,9 +3062,61 @@ kbd {
 /* Two columns on a laptop, one on a phone — an application form's contact
    block is short fields, and a single column of thirteen is a lot of scroll. */
 .pf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 var(--s3); }
-.pf-cell input { margin-bottom: 4px; }
+.pf-cell input, .pf-cell select { margin-bottom: 4px; width: 100%; }
 .pf-cell .fineprint { margin-bottom: var(--s3); }
 .pf-req { color: var(--warn); }
+
+/* Missing fields: red until filled. The box, its label and a small tag carry
+   it together, so it is never colour alone. Filling it turns the tag to a calm
+   "Ready to save" at once; the red fades rather than snapping off. */
+.pf-cell input, .pf-cell select { transition: border-color .2s ease, box-shadow .2s ease, background-color .2s ease; }
+.pf-cell.is-missing input, .pf-cell.is-missing select {
+  border-color: var(--bad);
+  background-color: color-mix(in srgb, var(--bad-soft) 55%, var(--surface));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 14%, transparent);
+}
+.pf-cell.is-missing input:focus-visible, .pf-cell.is-missing select:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 30%, transparent);
+}
+.pf-cell.is-missing > label { color: var(--bad); }
+.pf-need {
+  display: inline-block; margin-left: 8px; padding: 1px 8px; vertical-align: 1px;
+  border-radius: var(--r-full); font-size: var(--fs-xs); font-weight: 600; line-height: 1.5;
+  color: var(--bad); background: var(--bad-soft);
+  transition: color .2s ease, background-color .2s ease;
+}
+.pf-cell.is-filled .pf-need { color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); }
+/* Arriving from the checklist: one ring that spreads and fades. */
+.pf-cell.is-arrived input, .pf-cell.is-arrived select { animation: pf-arrive .9s cubic-bezier(.23, 1, .32, 1) .15s 1; }
+@keyframes pf-arrive {
+  from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--bad) 45%, transparent); }
+  to { box-shadow: 0 0 0 12px color-mix(in srgb, var(--bad) 0%, transparent); }
+}
+
+/* The list at the top: what is left, each name a jump to its box. */
+.pf-missing {
+  margin: 0 0 var(--s4); padding: var(--s3) var(--s4);
+  border: 1px solid color-mix(in srgb, var(--bad) 35%, var(--line)); border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--bad-soft) 45%, var(--surface));
+}
+.pf-missing p { margin: 4px 0 0; }
+.pf-missing-head { display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap; }
+.pf-missing-count { font-size: var(--fs-sm); color: var(--bad); font-weight: 600; font-variant-numeric: tabular-nums; }
+.pf-missing-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--s2); }
+.pf-missing-chip {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 4px 12px;
+  border: 1px solid color-mix(in srgb, var(--bad) 45%, var(--line)); border-radius: var(--r-full);
+  background: var(--surface); color: var(--text); font: inherit; font-size: var(--fs-sm); cursor: pointer;
+  transition: border-color .2s ease, background-color .2s ease, color .2s ease, transform .12s cubic-bezier(.23, 1, .32, 1);
+}
+.pf-missing-chip::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--bad); transition: background-color .2s ease; }
+.pf-missing-chip:hover { border-color: var(--bad); }
+.pf-missing-chip:active { transform: scale(.97); }
+.pf-missing-chip.is-done { border-color: color-mix(in srgb, var(--good) 45%, var(--line)); color: var(--text-muted); }
+.pf-missing-chip.is-done::before { background: var(--good); }
+@media (prefers-reduced-motion: reduce) {
+  .pf-cell.is-arrived input, .pf-cell.is-arrived select { animation: none; }
+}
 
 .pf-saved summary { font-size: var(--fs-md); font-weight: 650; cursor: pointer; margin-bottom: var(--s3); }
 .pf-answer {
@@ -3352,14 +3579,17 @@ a.btn.iconbtn:active { transform: scale(.97); }
 .chip.signal.good { color: var(--good); background: var(--good-soft); }
 
 /* Board rows: fit meter, skills line, freshness, sponsorship gate, status. */
-.fitmeter { display: flex; flex-direction: column; gap: 3px; margin-top: 5px; font-size: var(--fs-xs); color: var(--text-dim); }
-.fitmeter-n { font-weight: 650; color: var(--text); font-variant-numeric: tabular-nums; line-height: 1; }
-.fitmeter-bar { display: block; width: 40px; height: 4px; border-radius: var(--r-full); background: var(--chip); overflow: hidden; }
+/* Centred in the grade badge's own 28px column: the score left-aligned under
+   a centred letter, with a 40px bar overhanging both, read as three loose
+   pieces instead of one grade. */
+.fitmeter { display: flex; flex-direction: column; align-items: center; gap: 3px; width: 28px; margin-top: 5px; font-size: var(--fs-xs); color: var(--text-dim); }
+.fitmeter-n { font-weight: 650; color: var(--text-dim); font-variant-numeric: tabular-nums; line-height: 1; }
+.fitmeter-bar { display: block; width: 28px; height: 3px; border-radius: var(--r-full); background: var(--chip); overflow: hidden; }
 .fitmeter-bar > i { display: block; height: 100%; border-radius: inherit; background: var(--text-faint); }
 .fitmeter.strong .fitmeter-bar > i, .fitcard-score.strong .fitmeter-bar > i { background: var(--good); }
 .fitmeter.medium .fitmeter-bar > i, .fitcard-score.medium .fitmeter-bar > i { background: var(--accent); }
 .fitmeter.weak .fitmeter-bar > i, .fitcard-score.weak .fitmeter-bar > i { background: var(--warn); }
-.fitmeter.none { font-style: italic; color: var(--text-faint); }
+.fitmeter.none { font-style: italic; color: var(--text-faint); width: auto; align-items: flex-start; }
 .skillline {
   margin-top: 3px; font-size: var(--fs-sm); color: var(--text-dim);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -3869,3 +4099,138 @@ dialog.palette::backdrop { background: rgba(5, 8, 14, .45); }
 .pal-detail { color: var(--text-dim); font-size: var(--fs-sm); margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pal-empty { padding: 14px 10px; color: var(--text-dim); font-size: var(--fs-md); }
 .pal-foot { margin: 0; padding: 8px 14px; border-top: 1px solid var(--line-soft); font-size: var(--fs-xs); }
+
+/* Move to another computer (System health → Backups). */
+.export-form { margin-top: var(--s3); display: flex; flex-direction: column; gap: 6px; max-width: 32rem; }
+.export-form h4 { margin: 0; font-size: var(--fs-md); }
+.export-form p { margin: 0; }
+.export-form input { max-width: 20rem; }
+
+/* Requirement phrases outside the vocabulary (R12). */
+.unlisted { list-style: none; margin: var(--s2) 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.unlisted li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--s2); font-size: var(--fs-md); }
+.unlisted li button { margin-left: auto; }
+
+/* Answers for this job (audit A4): labels above full-width boxes, as in the
+   Questions list, so the panel reads top to bottom in the narrow rail. */
+.answer-draft label { display: block; margin: 10px 0 4px; font-weight: 600; }
+.answer-draft input[type="text"],
+.answer-draft textarea { display: block; width: 100%; box-sizing: border-box; }
+.answer-draft button { margin-top: 8px; }
+.answer-draft [role="status"] { margin-top: 6px; }
+.answer-draft ul.plan { margin: 6px 0 0; }
+
+/* ─────────────────── Liquid glass ───────────────────
+   The switches and the filter bar are made of one material: a translucent
+   pane that blurs and brightens what is behind it, lit along its top edge and
+   shaded along its bottom, with a 1px rim. A switch is a recessed glass
+   channel; its selected option is a raised glass lens that slides between
+   options (glass.js). Text never sits on the blur alone: every pane keeps
+   enough of its own surface colour to hold body contrast.
+
+   No backdrop-filter: what is behind these panes is the page's fixed ambient
+   light (body::before), a smooth gradient that a translucent fill already
+   frosts, and a blur over the scrolling board would recomposite on every
+   scroll (see "frosts only the header" in workbenchUx.test.js). */
+[data-glass] { position: relative; isolation: isolate; }
+[data-glass] > :not(.glass-lens) { position: relative; z-index: 1; }
+
+/* The channel. */
+.viewswitch[data-glass], .tabs[data-glass], .seg[data-glass] {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--lg-channel), var(--lg-channel)) padding-box,
+    linear-gradient(color-mix(in srgb, var(--surface-2) 45%, transparent), color-mix(in srgb, var(--surface-2) 45%, transparent)) padding-box,
+    linear-gradient(180deg, var(--lg-rim-bottom), var(--lg-rim-top)) border-box;
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--lg-shade) 60%, transparent), inset 0 -1px 0 var(--lg-spec);
+}
+
+/* The lens. */
+.glass-lens {
+  position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none;
+  border-radius: var(--r-full);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--raised) 86%, transparent), color-mix(in srgb, var(--raised) 66%, transparent));
+  box-shadow:
+    inset 0 1px 0 var(--lg-spec),
+    inset 0 -1px 0 color-mix(in srgb, var(--lg-shade) 45%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--lg-rim-top) 70%, var(--glass-line)),
+    0 1px 2px var(--lg-shade),
+    0 4px 10px -4px var(--lg-shade),
+    0 12px 24px -14px var(--lg-shade);
+  /* The glide is a compositor animation started from glass.js (transform
+     only, a spring); the size is set at once and played back as a scale from
+     this corner. Only the fade in and out is a transition. */
+  transform-origin: 0 0;
+  transition: opacity .18s ease;
+}
+/* A soft caustic where the light enters the drop. */
+.glass-lens::after {
+  content: ''; position: absolute; inset: 1px; border-radius: inherit; pointer-events: none;
+  background: radial-gradient(130% 90% at 28% 0%, var(--lg-spec), transparent 58%);
+  opacity: .6;
+}
+.glass-lens.is-off { opacity: 0; }
+.seg[data-glass] .glass-lens { border-radius: var(--r-xs); }
+
+/* Options over the lens: the lens is the selection, so the option itself goes clear. */
+.viewswitch[data-glass] button[aria-pressed="true"],
+.tabs[data-glass] .tab[aria-selected="true"] { background: transparent; box-shadow: none; border-color: transparent; }
+/* No hover wash where the lens is arriving: two fills in one place read as a flicker. */
+.viewswitch[data-glass] button:not([aria-pressed="true"]):not(.is-lensed):hover,
+.tabs[data-glass] .tab:not([aria-selected="true"]):not(.is-lensed):hover { background: color-mix(in srgb, var(--text) 5%, transparent); }
+/* The option the lens is under takes its selected ink as the lens sets off,
+   not a press later when the app confirms it. */
+.viewswitch[data-glass] button.is-lensed, .tabs[data-glass] .tab.is-lensed { color: var(--text); }
+.viewswitch[data-glass] button, .tabs[data-glass] .tab { transition: color .16s ease, background-color .16s ease; }
+/* The "Posted" segments filter the board, so their lens is tinted with the accent. */
+.seg[data-glass] button[aria-pressed="true"] { background: transparent; border-color: transparent; color: var(--accent-ink); }
+.seg[data-glass] button[aria-pressed="true"]:hover { background: transparent; }
+.seg[data-glass] .glass-lens {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 88%, white 12%), var(--accent));
+}
+
+/* The filter bar: one pane of glass, with its fields set in as inlays. */
+.filterbar {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(color-mix(in srgb, var(--surface) 62%, transparent), color-mix(in srgb, var(--surface) 62%, transparent)) padding-box,
+    linear-gradient(180deg, var(--lg-rim-top), var(--lg-rim-bottom)) border-box;
+  box-shadow:
+    inset 0 1px 0 var(--lg-spec),
+    0 1px 2px color-mix(in srgb, var(--lg-shade) 55%, transparent),
+    0 18px 36px -26px var(--lg-shade);
+}
+.filters select, .filters .searchfield, .filters input[type=text], .filterbar .filter-toggle, .filterbar .toggle {
+  background-color: color-mix(in srgb, var(--surface-2) 58%, transparent);
+  border-color: var(--glass-line);
+  box-shadow: inset 0 1px 0 var(--lg-spec), 0 1px 1px color-mix(in srgb, var(--lg-shade) 40%, transparent);
+  transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+}
+.filters select:hover, .filters .searchfield:hover, .filterbar .filter-toggle:hover, .filterbar .toggle:hover {
+  background-color: color-mix(in srgb, var(--surface-2) 80%, transparent);
+}
+.filters select:focus-visible, .filterbar .filter-toggle:focus-visible {
+  border-color: var(--accent); box-shadow: inset 0 1px 0 var(--lg-spec), 0 0 0 3px var(--accent-soft);
+}
+/* A control that is filtering keeps its accent through the glass. */
+.filters select.on, .filterbar .toggle:has(input:checked) { background-color: var(--accent-soft); border-color: var(--accent); }
+.filterbar .filter-toggle[aria-expanded="true"] { background-color: color-mix(in srgb, var(--accent-soft) 80%, transparent); border-color: var(--accent); }
+
+/* Where glass would cost legibility, it is a plain surface. */
+@media (prefers-reduced-transparency: reduce) {
+  .viewswitch[data-glass], .tabs[data-glass], .seg[data-glass] { background: var(--surface-2); border-color: var(--line-soft); }
+  .glass-lens { background: var(--raised); }
+  .glass-lens::after { display: none; }
+  .filterbar { background: var(--surface); border-color: var(--line-soft); }
+  .filters select, .filters .searchfield, .filters input[type=text], .filterbar .filter-toggle, .filterbar .toggle { background-color: var(--surface-2); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .glass-lens { transition: none; }
+}
+
+/* Back to top: appears in the docked pager once the list is two screens deep. */
+.pagerbar .to-top { display: inline-flex; align-items: center; gap: 6px; }
+.pagerbar .to-top[hidden] { display: none; }
+.pagerbar .to-top .ic { width: 14px; height: 14px; }
+.pagerbar .to-top:not([hidden]) { animation: menu-in .18s cubic-bezier(.2, .8, .2, 1); }
+@media (prefers-reduced-motion: reduce) { .pagerbar .to-top:not([hidden]) { animation: none; } }

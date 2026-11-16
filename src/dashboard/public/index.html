@@ -32,7 +32,7 @@
 
 <div id="offline" role="alert">
   ⚠ Lost connection to the dashboard server, it may have stopped.
-  Restart it with <code>npm run dashboard</code>, then
+  Open JobAgent again from its launcher, then
   <button class="small" data-action="reload">Reload</button>
 </div>
 
@@ -155,7 +155,6 @@
         <button role="menuitem" class="only-narrow" data-action="toggle-theme">Switch light or dark</button>
         <a role="menuitem" class="btn only-narrow" href="/assets/explore/index.html" target="_blank" rel="noopener">Explore JobAgent</a>
         <button role="menuitem" data-action="open-keys" aria-keyshortcuts="?">Keyboard shortcuts <kbd class="mi-hint">?</kbd></button>
-        <a role="menuitem" class="btn" href="/learn/" target="_blank" rel="noopener">Interview Prep <svg class="ic mi-ext" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 16 16 8M10 8h6v6"/></svg><span class="sr-only"> (opens in a new tab)</span></a>
       </div>
     </span>
 
@@ -535,6 +534,8 @@
               <button role="menuitem" class="bulk-narrowest" data-action="batch-decide" data-decision="shortlisted">Shortlist</button>
               <button role="menuitem" data-action="batch-decide" data-decision="rejected">Reject</button>
               <button role="menuitem" data-action="batch-decide" data-decision="archived">Archive</button>
+              <button role="menuitem" data-action="batch-decide" data-decision="clear"
+                title="Undo Shortlist, Reject or Archive on the selected jobs">Clear decision (unarchive, unshortlist)</button>
             </div>
           </span>
         </div>
@@ -570,7 +571,9 @@
            WHICH jobs match. Same reasoning that put "Rows" here. -->
       <span class="menu viewmenu">
         <button type="button" class="small ghost" data-action="toggle-view-menu"
-          aria-haspopup="true" aria-expanded="false" aria-controls="viewMenu">View</button>
+          aria-haspopup="true" aria-expanded="false" aria-controls="viewMenu"
+          title="Row density and which columns to show">View
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg></button>
         <div class="menu-pop" id="viewMenu" role="menu">
           <div class="menu-label" role="presentation">Density</div>
           <button type="button" role="menuitemradio" aria-checked="true" data-action="set-density" data-density="comfortable">Comfortable</button>

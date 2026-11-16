@@ -42,7 +42,7 @@ const DE_RESUME = [
   'Architected cloud-native pipelines on Azure using Databricks and Delta Lake.',
   'Business Intelligence Developer | Tailspin Services',
   'Raleigh, NC   |   May 2018 - February 2021',
-  'Orchestrated DataOps automation with Azure DevOps for quarterly audits.',
+  'Automated release pipelines with Azure DevOps for quarterly audits.',
   'EDUCATION',
   'Master of Science in Computer Science | NC State University | 2016',
 ];
@@ -76,23 +76,23 @@ const PM_RESUME = [
 const LONG_CAREER_RESUME = [
   'Someone',
   'Data ENGINEER | Cloud & DATA PLATFORM | APACHE Spark & Lakehouse',
-  'Raleigh, NC | someone@example.com',
+  'Denver, CO | someone@example.com',
   'SKILLS',
   'Cloud: Azure Databricks, Microsoft Fabric',
   'PROFESSIONAL EXPERIENCE',
-  'Senior Data Engineer, Finance Analytics | Northwind Analytics',
-  'Raleigh, NC (Remote) | April 2022 - Present',
-  'Data / BI Engineer, Cloud Modernization | Contoso Insurance',
-  'Remote | January 2022 - March 2022',
-  'Power BI Developer, Product Analytics | Fabrikam Health',
-  'Horsham, PA (Remote) | February 2021 - December 2021',
-  'Business Intelligence Developer, Healthcare | Tailspin Services',
-  'Raleigh, NC | May 2018 - January 2021',
+  'Senior Data Engineer, Revenue Analytics | Northwind Analytics',
+  'Denver, CO (Remote) | June 2023 - Present',
+  'Data / BI Engineer, Platform Migration | Contoso Insurance',
+  'Remote | August 2022 - May 2023',
+  'Power BI Developer, Clinical Reporting | Fabrikam Health',
+  'Columbus, OH (Remote) | March 2020 - July 2022',
+  'Business Intelligence Developer, Claims | Tailspin Services',
+  'Denver, CO | June 2017 - February 2020',
   'EARLIER EXPERIENCE',
-  'Migration Specialist | Globex Payroll',
-  'Florence, SC | October 2017 - April 2018',
-  'SQL BI Developer | Woodgrove Financial',
-  'Bloomington, IL | February 2017 - September 2017',
+  'Implementation Specialist | Globex Payroll',
+  'Tulsa, OK | January 2016 - May 2017',
+  'Reporting Developer | Woodgrove Financial',
+  'Madison, WI | June 2015 - December 2015',
 ];
 
 describe('reading a resume as profile evidence', () => {
@@ -116,7 +116,7 @@ describe('reading a resume as profile evidence', () => {
     ['a city from the location line', 'Raleigh'],
     ['a headline tagline', 'Cloud & Data Platform'],
     ['a headline tagline', 'Apache Spark & Lakehouse'],
-    ['an achievement bullet', 'Orchestrated DataOps automation with Azure DevOps'],
+    ['an achievement bullet', 'Automated release pipelines with Azure DevOps'],
   ])('never proposes %s as a search target: %s', (_kind, value) => {
     // Each of these used to survive extraction, and each would have become a
     // real query against real job boards.
@@ -191,7 +191,7 @@ describe('comparing the resume with what is actually searched', () => {
   // which is wrong on any real resume: a resume is a career history, so most of
   // its titles are roles already moved past. Measured on a genuine Senior Data
   // Engineer resume against a profile targeting exactly that, the two current
-  // roles matched and five roles last held in 2017-2021 did not — 29% coverage,
+  // roles matched and five older roles did not — 29% coverage,
   // and the panel announced that the resume and the job search "disagree" when
   // they agreed completely.
   it('does NOT cry drift when the current role matches but old roles do not', () => {
@@ -216,9 +216,9 @@ describe('comparing the resume with what is actually searched', () => {
   it('separates the current role from earlier ones', () => {
     const evidence = extractResumeEvidence(LONG_CAREER_RESUME);
     expect(evidence.currentTitles).toContain('Senior Data Engineer');
-    // Held 2017-2018, so history — never presented as what this person is now.
-    expect(evidence.earlierTitles).toContain('Migration Specialist');
-    expect(evidence.currentTitles).not.toContain('Migration Specialist');
+    // Held 2016-2017, so history — never presented as what this person is now.
+    expect(evidence.earlierTitles).toContain('Implementation Specialist');
+    expect(evidence.currentTitles).not.toContain('Implementation Specialist');
   });
 
   it('still cries drift when the CURRENT role is not searched for', () => {

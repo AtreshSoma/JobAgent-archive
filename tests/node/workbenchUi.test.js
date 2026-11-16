@@ -205,7 +205,7 @@ describe('dashboard shell structure', () => {
 
   it('keeps the primary workflow reachable from the shell', () => {
     // One primary button on the header; its siblings live in the split menu.
-    for (const label of ['>Find jobs<', 'Find jobs and prepare packets', 'Add a job by URL', 'Interview Prep']) {
+    for (const label of ['>Find jobs<', 'Find jobs and prepare packets', 'Add a job by URL']) {
       expect(html).toContain(label);
     }
     for (const id of ['id="btnDiscover"', 'id="btnPrepare"', 'id="btnAddUrl"']) expect(html).toContain(id);
@@ -214,7 +214,6 @@ describe('dashboard shell structure', () => {
     ]) {
       expect(html).toContain(`data-action="${action}"`);
     }
-    expect(html).toContain('/learn/');
   });
 
   it('links its stylesheet and module script rather than inlining them', () => {
@@ -425,7 +424,9 @@ describe('the top pane states things once', () => {
     }
     // What remains is what changed and what is worth a look; corpus size and
     // coverage moved to the Discovery and data quality dialog.
-    for (const kept of ['postedLast7d', 'strongFit']) expect(facts).toContain(kept);
+    expect(facts).toContain('postedLast7d');
+    // Strong fits are the Priority and Best matches tabs and the Next panel's first line.
+    expect(facts).not.toContain("key: 'strongFit'");
     for (const moved of ['jobsTracked', 'discoveredLast24h', 'postedLast24h']) {
       expect(facts, `${moved} belongs in the data-quality dialog`).not.toContain(`key: '${moved}'`);
     }
@@ -606,8 +607,11 @@ describe('run state and recovery', () => {
 
   it('groups the big counts a discovery run produces', () => {
     // "Found 14461" is materially harder to read than "Found 14,461".
-    expect(app).toContain('fmt(counters.jobs_found)');
-    expect(app).not.toMatch(/\$\{counters\.jobs_found \?\? 0\}/);
+    // The seen count is read once into `seen` (so "N new (all of them)" can
+    // compare it with the new count) and is only ever printed through fmt().
+    expect(app).toMatch(/const seen = Number\(counters\.jobs_found \?\? 0\)/);
+    expect(app).toContain('fmt(seen)');
+    expect(app).not.toMatch(/\$\{seen\}|\$\{counters\.jobs_found \?\? 0\}/);
   });
 
   it('leads the discovery summary with what was NEW, not the total seen', () => {

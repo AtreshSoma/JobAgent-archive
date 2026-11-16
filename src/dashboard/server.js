@@ -80,6 +80,8 @@ import { assertInsideDirectory, isInsideDirectory } from '../utils/pathSafe.js';
 import { approveJobPacket, buildMasterResume, setDuringBulkRun, noteUserMutation, setBrowserAvailability, withdrawApproval } from './data.js';
 import { approvalDigest, approvedDigest, digestChanges } from '../apply/approvalDigest.js';
 import { extractDocxText, isDocxBuffer } from '../resume/docxText.js';
+import { resumeReadiness } from '../resume/tailorRunner.js';
+import { forDashboard } from './healthFixes.js';
 import { runScore, runRescore, runPrepareApps, loadPacket, recordAssistResult, preparePacketsForJobs } from '../cli/commands.js';
 import { assistApply } from '../automation/applyRunner.js';
 import { createCodeFreshness } from './codeFreshness.js';
@@ -88,9 +90,12 @@ import { sweepPostings } from '../search/postingLiveness.js';
 import { reconcileStalePackets } from '../apply/packetHygiene.js';
 import { packetOwnershipCheck } from '../apply/applicationPacket.js';
 import { loadConfig } from '../config/loadConfig.js';
-import { isPlaceholderValue } from '../config/placeholders.js';
+import { findPlaceholders, isPlaceholderValue } from '../config/placeholders.js';
 import { runEnrichment } from '../search/enrich.js';
 import { PROFILE_FIELDS, readProfile, readScreeningAnswers } from '../config/profileStore.js';
+import { skillYearsFromHistory } from '../apply/skillYears.js';
+import { similarAnswered } from '../apply/questionSimilarity.js';
+import { experienceSubject } from '../apply/screeningQA.js';
 import { recordUnansweredQuestions, suggestAnswerId, suggestPatterns, summarizeQuestionQueue } from '../apply/questionQueue.js';
 import { evaluateAutoApplyBatch } from '../apply/autoApplyEligibility.js';
 import { loadLiveVerifiedAts } from '../apply/liveVerification.js';
@@ -104,6 +109,7 @@ import { openDatabase } from '../logging/db.js';
 import { seedJobsInto } from '../profile/seed.js';
 import { deriveFromProfile } from '../profile/derive.js';
 import { LOOPBACK_HOSTNAMES, MAX_MASTER_RESUME_BYTES, acceptsGzip, batchJobIds, isAllowedOrigin, sendJson } from './httpHelpers.js';
+import { createPairing, ensureExtensionKey } from '../extension/pairing.js';
 import { handleExtensionRoutes } from './routes/extensionRoutes.js';
 import { handleBoardRoutes } from './routes/boardRoutes.js';
 import { handleMasterResumeRoutes } from './routes/masterResumeRoutes.js';
@@ -303,7 +309,29 @@ export function createDashboardServer({ config: bootConfig, db, logger, deps = {
       if (handle !== bootDb) { try { handle.close(); } catch { /* best effort on shutdown */ } }
     }
   }
-  const extensionKey = deps.extensionKey ?? process.env.JOB_AGENT_EXTENSION_KEY ?? '';
+  // The extension key: from the environment, else the one kept in data/ (made
+  // when the person first shows a pairing code; audit A12).
+  const envExtensionKey = deps.extensionKey ?? process.env.JOB_AGENT_EXTENSION_KEY ?? '';
+  let keptExtensionKey = '';
+  const pairing = createPairing();
+  function currentExtensionKey() {
+    if (envExtensionKey) return envExtensionKey;
+    if (!keptExtensionKey && config?.root) {
+      try {
+        const kept = readFileSync(join(workspacePaths(config.root).dataDir, 'extension_key'), 'utf8').trim();
+        if (kept.length >= 32) keptExtensionKey = kept;
+      } catch { /* not paired yet */ }
+    }
+    return keptExtensionKey;
+  }
+  /** The key a pairing code hands out; made now when there is none. */
+  function extensionKeyForPairing() {
+    const existing = currentExtensionKey();
+    if (existing) return existing;
+    if (!config?.root) throw new Error('This dashboard was started without a project root, so it cannot keep an extension key.');
+    keptExtensionKey = ensureExtensionKey(config.root);
+    return keptExtensionKey;
+  }
   // Each run gets its OWN JobLogger (`runDeps.logger`, see startRun). Passing
   // the dashboard SESSION's logger made the pipeline's endRun() write every
   // run's counters to the session's run id — which upserted a mode='unknown'
@@ -397,7 +425,8 @@ export function createDashboardServer({ config: bootConfig, db, logger, deps = {
     if (healthPromise) return healthPromise;
     healthPromise = (async () => {
       const doctor = deps.doctorFn ?? (await import('../cli/doctor.js')).runDoctor;
-      const report = await doctor({ env: process.env, root: config?.root ?? undefined });
+      // Fixes rewritten for someone with no terminal open (S1).
+      const report = forDashboard(await doctor({ env: process.env, root: config?.root ?? undefined }));
       healthCache = report;
       healthCacheAt = Date.now();
       return report;
@@ -422,6 +451,10 @@ export function createDashboardServer({ config: bootConfig, db, logger, deps = {
     try {
       const loader = deps.loadConfigImpl ?? loadConfig;
       config = loader({ root, loadEnv: false });
+      // The doctor's verdict was about the old files: a profile box just filled
+      // must leave the setup checklist on the next look, not 30 seconds later.
+      healthCache = null;
+      healthCacheAt = 0;
       // This process's own write is now loaded; only a LATER change by another
       // process should trigger followExternalChanges.
       if (dbPath) seenActivation = activationStamp(root);
@@ -438,6 +471,29 @@ export function createDashboardServer({ config: bootConfig, db, logger, deps = {
       return `Saved, but the config could not be reloaded (${message}). `
         + 'Restart the dashboard before the next auto-apply run.';
     }
+  }
+
+  /**
+   * Pick up a template value fixed BY HAND while the dashboard is running.
+   *
+   * Work authorization and the cover-letter fields have no form, so the fix is
+   * an edit to the profile / cover_letter.json (plus `npm run profiles
+   * activate` from a terminal). The server kept the config it loaded at boot,
+   * so after a correct fix the notice still listed the field and Prepare still
+   * refused. Only runs while the loaded config is templated, and reloads only
+   * when the files on disk actually differ, so the normal path costs nothing.
+   *
+   * @returns {string|null} reloadConfig's warning, or null
+   */
+  function refreshConfigIfTemplated() {
+    if (!config?.root) return null;
+    let live;
+    try { live = findPlaceholders(config); } catch { return null; }
+    if (live.ok) return null;
+    let fresh;
+    try { fresh = (deps.loadConfigImpl ?? loadConfig)({ root: config.root, loadEnv: false }); } catch { return null; }
+    const key = (found) => JSON.stringify(found.placeholders.map((p) => [p.file, p.path, p.value]));
+    return key(findPlaceholders(fresh)) === key(live) ? null : reloadConfig();
   }
 
   /**
@@ -471,6 +527,7 @@ export function createDashboardServer({ config: bootConfig, db, logger, deps = {
     reloadConfig();
     return switched;
   }
+
 
   /**
    * Re-judge the rows the previous profile scored, off the request path.
@@ -773,11 +830,23 @@ export function createDashboardServer({ config: bootConfig, db, logger, deps = {
         ...questions,
         // Suggested id/patterns are computed here, so the browser never has to
         // reimplement the matcher's tokenizing rules and get them subtly wrong.
-        open: questions.open.map((q) => ({
-          ...q,
-          suggestedId: suggestAnswerId(q.label),
-          suggestedPatterns: suggestPatterns(q.label),
-        })),
+        open: questions.open.map((q) => {
+          // A6: a "years with X" question carries the number the work history
+          // supports and the roles behind it, for the person to confirm.
+          const subject = experienceSubject(q.label);
+          const suggestion = subject ? skillYearsFromHistory(subject, config?.candidate?.workHistory) : null;
+          // A5: an already-answered question this one is worded like, offered for
+          // one confirmation. Only an answer that still exists is offered.
+          const similar = q.kind === 'general' ? similarAnswered(q.label, questions.resolved) : null;
+          const similarTo = similar && screening.answers.some((a) => a.id === similar.answerId) ? similar : null;
+          return {
+            ...q,
+            suggestedId: suggestAnswerId(q.label),
+            suggestedPatterns: suggestPatterns(q.label),
+            ...(suggestion ? { suggestedExperience: { subject, ...suggestion } } : {}),
+            ...(similarTo ? { similarTo } : {}),
+          };
+        }),
       },
     };
   }
@@ -1331,6 +1400,31 @@ export function createDashboardServer({ config: bootConfig, db, logger, deps = {
     logger?.info?.(`master resume replaced (${bytes.length} bytes, ${extracted.wordCount} words)`
       + `${backup ? `; previous version kept as ${backup}` : ''}`);
     return { replaced: true, backup, master: masterResumeState() };
+  }
+
+  /**
+   * What tailoring will be able to work with in the current master resume
+   * (audit F4), cached by file and modification time: it runs Python, and the
+   * dialog asks every time it opens. Never refuses anything; it only reports.
+   */
+  const readinessImpl = deps.resumeReadinessImpl ?? resumeReadiness;
+  let readinessCache = null;
+  async function masterResumeReadiness() {
+    const { file } = masterResumePaths();
+    let mtimeMs;
+    try { mtimeMs = statSync(file).mtimeMs; } catch { return { available: false, reason: 'There is no master resume yet.' }; }
+    if (readinessCache?.file === file && readinessCache.mtimeMs === mtimeMs) return readinessCache.result;
+    let result;
+    try {
+      result = { available: true, ...(await readinessImpl(file, { root: config?.root, atsConfig: config?.atsResume ?? null })) };
+    } catch (err) {
+      result = {
+        available: false,
+        reason: `The resume check needs the Python part of JobAgent, which could not run (${String(err.message).split('\n')[0]}).`,
+      };
+    }
+    readinessCache = { file, mtimeMs, result };
+    return result;
   }
 
   /** Roll back to a kept previous version (itself backed up first). */
@@ -2008,12 +2102,15 @@ export function createDashboardServer({ config: bootConfig, db, logger, deps = {
     get deps() { return deps; },
     get enrichment() { return enrichment; },
     get enrichmentStatus() { return enrichmentStatus; },
-    get extensionKey() { return extensionKey; },
+    get extensionKey() { return currentExtensionKey(); },
+    get pairing() { return pairing; },
+    extensionKeyForPairing,
     get flushTracker() { return flushTracker; },
     get healthReport() { return healthReport; },
     get isSubmittedOrUnverified() { return isSubmittedOrUnverified; },
     get logger() { return logger; },
     get masterResumeState() { return masterResumeState; },
+    get masterResumeReadiness() { return masterResumeReadiness; },
     get materializeResumePreview() { return materializeResumePreview; },
     get nowDate() { return nowDate; },
     get postingSweep() { return postingSweep; },
@@ -2022,6 +2119,7 @@ export function createDashboardServer({ config: bootConfig, db, logger, deps = {
     get readResumePreview() { return readResumePreview; },
     get refreshTracker() { return refreshTracker; },
     get reloadConfig() { return reloadConfig; },
+    get refreshConfigIfTemplated() { return refreshConfigIfTemplated; },
     get replaceMasterResume() { return replaceMasterResume; },
     get requireConfigRoot() { return requireConfigRoot; },
     get restoreMasterResume() { return restoreMasterResume; },

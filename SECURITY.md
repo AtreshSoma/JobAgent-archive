@@ -34,11 +34,17 @@ hosted for other people.
 - The optional LLM assist is off by default. Requirement extraction, the only
   thing `LLM_ASSIST=on` does by itself, receives only the public job description
   and title, and every phrase it returns must appear verbatim in that posting.
-  Features with their own switch send more: resume rewrites, refine and grounded
-  cover letters send resume bullets; drafting a reply sends resume bullets and the
-  email being answered; `INBOX_LLM=on` sends up to 6,000 characters of an email
-  body to classify it. Contact details, EEO answers and salary expectations are
-  not sent. A local provider (Ollama, LM Studio) keeps all of it on your computer.
+  Features with their own switch send more: `RESUME_REWRITE=suggest` (rewrites
+  and refine) sends resume bullets with their role lines; `COVER_LETTER_MODE=grounded`
+  sends the resume's summary, headline and bullets and the master cover letter's
+  paragraphs; drafting a reply sends resume bullets and the reply's subject and
+  flagged sentence; `INBOX_LLM=on` sends up to 6,000 characters of an email body
+  to sort it; `RERANK=on` sends resume bullets and the top matches' descriptions
+  to an embeddings model. Your name and contact details are never sent by any of
+  them: lines carrying a name, email address, phone number or profile link are
+  dropped first (`src/llm/identityUnits.js`). Screening answers, EEO answers and
+  salary expectations are not sent. A local provider (Ollama, LM Studio) keeps all
+  of it on your computer.
 - Nothing is submitted to an employer unless you opt in for that run; the
   default mode is `DRY_RUN`.
 
@@ -47,3 +53,26 @@ hosted for other people.
 Your profile, answers, resume, job database and `.env` are git-ignored. Never
 force-add them, and never expose the dashboard port to a network (for example
 with port forwarding or a tunnel).
+
+### What is stored on this computer, and how
+
+Everything JobAgent keeps is in its own folder, as **ordinary, unencrypted
+files**. Anyone who can read that folder (another account with access to it,
+a backup service, a stolen laptop without disk encryption) can read them:
+
+- your profile, screening answers and settings (`config/`), and any API keys in `.env`;
+- your master resume, cover letters and every tailored document (`resumes/`, `applications/`);
+- the job database and logs (`data/`, `logs/`);
+- **one browser profile folder per person** (`.browser-profile-…`), which holds
+  live sign-ins to every application site auto-fill used, such as Workday or iCIMS.
+
+What this means in practice:
+
+- Turn on your operating system's disk encryption (FileVault on macOS,
+  BitLocker on Windows). JobAgent does not encrypt its working folder.
+- The **Export everything** backup can be encrypted with a passphrase; the
+  working copy cannot.
+- **System health → Sign out everywhere** removes the active person's browser
+  profile folder, which signs them out of every application site on this
+  computer. Close any auto-fill window first; the next auto-fill asks you to
+  sign in again.

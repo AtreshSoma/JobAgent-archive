@@ -25,7 +25,7 @@
 Approve a packet and the agent opens the application in a real browser, fills it in, uploads your documents, and **stops before the final Submit**. Everything runs on your machine. The dashboard listens only on `127.0.0.1`, and your profile and answers stay in gitignored local files.
 
 > [!IMPORTANT]
-> **You stay in control of every application.** The agent fills and uploads, then hands the browser back to you. The single automated submit path requires your opt-in for that specific run, a clean form, a supported ATS, and an unused daily cap, and it records a job as applied only after the submission is **verified**. See the [Safety model](#-safety-model).
+> **You stay in control of every application.** The agent fills and uploads, then hands the browser back to you. The single automated submit path requires your opt-in for that specific run, a clean form, a supported ATS with a recorded supervised live run (none has one yet, so today it is refused everywhere), and an unused daily cap, and it records a job as applied only after the submission is **verified**. See the [Safety model](#-safety-model).
 
 ## ✨ Highlights
 
@@ -124,7 +124,8 @@ flowchart TB
 | **Node.js** | **≥ 22.13** | The built-in `node:sqlite` store needs no flag from 22.13. CI tests 22.x and 24.x |
 | **Python** | **3.12** | Resume tailoring through `python-docx` |
 | **Playwright Chromium** | latest | Browser-assisted form filling (a separate download) |
-| Microsoft Word | *optional* | Only for `docx2pdf` PDF export |
+| LibreOffice | *recommended* | Renders the PDF from the .docx and measures the page count the fit uses |
+| Microsoft Word | *optional* | PDF export through `docx2pdf` when LibreOffice is not installed |
 
 ### 2. Install
 
@@ -137,6 +138,8 @@ cp .env.example .env               # DRY_RUN needs no secrets
 
 <details>
 <summary><b>🐍 Python setup (resume tailoring)</b></summary>
+
+**One step:** `npm run setup:all` installs the Node dependencies, makes `.venv` with Python 3.12+ and installs `requirements.txt`, downloads the form-filling browser, and ends on the `npm run doctor` report. The launchers also offer the Python step the first time they run, and refresh it when `requirements.txt` changes. JobAgent finds `.venv` on its own, so `PYTHON=` in `.env` is optional. The manual steps:
 
 Use a virtual environment. On macOS (Homebrew) and recent Debian/Ubuntu, `pip install` into the system Python fails with `externally-managed-environment` (PEP 668). Create a venv; don't use `--break-system-packages`.
 
@@ -242,7 +245,10 @@ stateDiagram-v2
 - ✅ A confidently identified submit button
 - ✅ Daily cap not reached (`MAX_APPLICATIONS_PER_DAY`, default **15**, counted in your time zone)
 - ✅ A fixture-verified ATS: Greenhouse, Lever, Ashby, Workday, or SmartRecruiters. Unknown sites are fill-only
+- ✅ A recorded supervised live run on that ATS, listed in `config/verified_live_ats.json` (see [LIVE_VERIFICATION.md](docs/LIVE_VERIFICATION.md))
 - ✅ The packet was approved **before** the run started and belongs to the active candidate
+
+**Today no ATS has passed the live-run gate, so final Auto-submit is refused on every ATS.** Assisted fill, which never submits, works as described above.
 
 </details>
 
@@ -287,7 +293,7 @@ pie showData title Score points (100 total)
 
 | Source | Kind | Default | Cost |
 | --- | --- | :---: | --- |
-| **`ats-search`**: Workable and SmartRecruiters cross-company search | Query-first | ✅ On | Free, no key |
+| **`ats-search`**: Workable, SmartRecruiters and The Muse cross-company search | Query-first | ✅ On | Free, no key |
 | **Greenhouse, Lever, Ashby, SmartRecruiters, Workday** boards | Company-first | ✅ On | Free |
 | **Rippling, Oracle Recruiting, Amazon Jobs, iCIMS**, careers pages | Company-first | ✅ On | Free |
 | **Manual URLs and CSV** (`data/jobs_input/manual_jobs.csv`) | Your list | ✅ On | Free |
@@ -321,7 +327,7 @@ A local web workbench at `http://127.0.0.1:4646`. It has no extra dependencies a
 | **📋 Jobs** | Every open match, scoped by stage (All, Priority, Best matches, Shortlisted). Each row shows a fit meter, how many of the posting's skills you have, posting age and a *Verify first* mark when sponsorship is unconfirmed. Search, fit and status are always visible; *More filters* opens the rest in place, and active filters show as clearable chips. Sorting, paging and side-by-side comparison of up to three jobs. |
 | **📨 Applications** | A board from tailored resume to offer: *To review*, *Ready to apply*, *Needs you*, then *Applied*, *Interviewing*, *Offer* and *Closed*. Record interviews, offers, rejections and withdrawals by moving a card or from its Move menu (validated, undoable, never a submit), set follow-ups that come due on Today, and see submitted, interview and offer counts and rates from what you recorded. *List* keeps the stage tabs for bulk actions. A one-line weekly summary, and outcome columns in both CSV exports. |
 | **🔍 Job inspector** | Score explanation, skills you have, skills you're missing, sponsorship verdict, audit trail, notes that autosave, and the actions *Fill in browser* and *I submitted it myself*. |
-| **▶ Find jobs ▾** | Runs discovery in the background with a live progress pill. The **More actions** menu adds *Search by job role*, *Remove closed postings*, *Run history*, *Discovery and data quality* (freshness and retention, reading missing descriptions, why jobs were filtered), *Master resume*, *Application profile*, reports, CSV exports, *System health*, and *Interview Prep*. |
+| **▶ Find jobs ▾** | Runs discovery in the background with a live progress pill. The **More actions** menu adds *Search by job role*, *Remove closed postings*, *Run history*, *Discovery and data quality* (freshness and retention, reading missing descriptions, why jobs were filtered), *Master resume*, *Application profile*, reports, CSV exports, and *System health*. |
 
 **Answer a question once.** When a form asks something the agent can't answer, the run stops and the question joins a queue. Your answer is validated, saved to `config/screening_answers.json`, and reused on every later application that asks the same thing.
 
@@ -351,7 +357,7 @@ sequenceDiagram
     end
 ```
 
-The **Chrome / Edge extension** (unpacked Manifest V3, in [`extension/`](extension/)) does the same inside your normal signed-in browser profile. Load it from `chrome://extensions` or `edge://extensions` with **Developer mode → Load unpacked**, then paste `JOB_AGENT_EXTENSION_KEY` from your `.env` into its Connection settings. It uses only `activeTab`, talks only to the loopback dashboard, and never fills passwords, CAPTCHAs, legal attestations, or work-authorization questions. See the [setup steps](docs/USER_GUIDE.md#-chrome--edge-extension).
+The **Chrome / Edge extension** (unpacked Manifest V3, in [`extension/`](extension/)) does the same inside your normal signed-in browser profile. Load it from `chrome://extensions` or `edge://extensions` with **Developer mode → Load unpacked**, then pair it with the code the dashboard shows (System health → Pair the extension) in its Connection settings. It uses only `activeTab`, talks only to the loopback dashboard, and never fills passwords, CAPTCHAs, legal attestations, or work-authorization questions. See the [setup steps](docs/USER_GUIDE.md#-chrome--edge-extension).
 
 ## 👤 Search profiles
 
@@ -390,7 +396,6 @@ Your hand-written rules are never overwritten. Derived values live in their own 
 | Re-score stored jobs after a config change (no network) | `npm run rescore` |
 | Retire postings the employer closed | `npm run postings:check` (dry run) · `npm run postings:prune` |
 | Export the application tracker CSV | `npm run tracker` |
-| Interview-prep study site | `npm run learn` → `http://127.0.0.1:4747` |
 | Every command, grouped | `npm run help` |
 
 > [!TIP]
@@ -411,10 +416,21 @@ Set with `RUN_MODE` in `.env` or `--mode=`. Unknown values fall back to `DRY_RUN
 
 ## 🧠 Optional LLM assist
 
-**Off by default.** Turn it on with `LLM_ASSIST=on` and an OpenAI-compatible endpoint (see `.env.example`). It does one narrow job: it reads a job description and proposes requirement phrases the keyword list missed.
+**Off by default.** Turn it on with `LLM_ASSIST=on` and a provider (see `.env.example`). Its first job is narrow: it reads a job description and proposes requirement phrases the keyword list missed. Every other feature has its own switch. Each sends exactly this to the provider you chose:
+
+| Feature | Switch | What is sent |
+| --- | --- | --- |
+| Requirement phrases | `LLM_ASSIST=on` | The posting's title and description |
+| Rewrite suggestions | `RESUME_REWRITE=suggest` | Your resume bullets (up to 40) with the role line each sits under, requirement phrases from the posting, and any instruction you type to refine them |
+| Grounded cover letters | `COVER_LETTER_MODE=grounded` | The company and job title, requirement phrases, your resume's summary, headline and bullets (up to 60) with their role lines, and the paragraphs of your master cover letter |
+| Reply drafts | `LLM_ASSIST=on` with an inbox connected | Your resume bullets (up to 40), the employer and job title, and the reply's subject and the sentence it was flagged on |
+| Reply sorting | `INBOX_LLM=on` | The subject and up to 6,000 characters of a reply the rules could not sort |
+| Rank by meaning | `RERANK=on` | Your resume bullets, and the title and first 2,000 characters of each of your top 50 matches |
+
+Your name and contact details are never sent by any of them: a line carrying your name, an email address, a phone number or your own profile links is dropped before a request is built. Screening answers, EEO answers and salary expectations are never sent either. Rewrites, letters, reply drafts and ranking all send your own resume text, so a local provider (**Ollama** or **LM Studio**) keeps everything on this computer.
 
 > [!IMPORTANT]
-> **It can't fabricate.** Every proposed phrase must appear **verbatim in that job description** or it's dropped. The model never writes or rewords resume text, never answers screening questions, and is never consulted on submit. Only the public job title and description are sent. Your resume and contact details are not.
+> **It can't fabricate.** Every proposed requirement phrase must appear **verbatim in that job description** or it's dropped. A rewrite or letter paragraph is kept only when the resume lines it cites back it up, and no rewording reaches your resume until you accept it. The model never answers screening questions and is never consulted on submit.
 
 ## ⚙️ Configuration
 
@@ -447,12 +463,11 @@ src/
   resume/           Python tailoring, ATS lint, humanizer, PDF export
   apply/            cover letter, packets, approval queue, screening Q&A, ATS adapters
   automation/       Playwright apply runner, page guards, field filler
-  dashboard/        local web workbench (server + static assets + /learn)
+  dashboard/        local web workbench (server + static assets)
   extension/        server endpoints behind the browser extension
   reports/  llm/  logging/  utils/
 extension/        unpacked Manifest V3 Chrome/Edge extension
 scripts/          maintenance and diagnostics (see scripts/README.md)
-interview-prep/   interview course modules, PDF build, local study server
 resumes/          base/ (master, read-only) and output/ (tailored drafts)
 applications/     output/: one JSON packet per prepared job
 data/             applied_jobs.db (SQLite), manual_jobs.csv, run outputs
@@ -495,7 +510,6 @@ Tests run in a throwaway workspace with fictional fixture profiles, so a fresh c
 | 🧭 [Support matrix](docs/SUPPORT_MATRIX.md) | What works per source and ATS, and how it was verified |
 | 🏗️ [Repository structure](docs/architecture/REPOSITORY_STRUCTURE.md) | Ownership, stable paths, local data boundaries |
 | 🧰 [Scripts](scripts/README.md) | Maintenance tools and archived one-off repairs |
-| 🎓 [Interview prep](interview-prep/README.md) | Data-engineering interview course built from your applications |
 | ⚖️ [Third-party notices](THIRD_PARTY_NOTICES.md) · [License review](docs/LICENSE_REVIEW.md) | Dependency and font licenses |
 
 ## 📄 License

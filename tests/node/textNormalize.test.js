@@ -20,7 +20,7 @@ describe('textNormalize', () => {
   });
 
   it('slugify produces filesystem-safe slugs with a cap', () => {
-    expect(slugify('Microsoft (Capgemini)')).toBe('microsoft_capgemini');
+    expect(slugify('Contoso (Fabrikam)')).toBe('contoso_fabrikam');
     expect(slugify('Senior Data Engineer', 10)).toBe('senior_dat');
     expect(slugify('')).toBe('untitled');
   });

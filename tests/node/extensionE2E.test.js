@@ -2,11 +2,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { chromium } from 'playwright';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { launchOrSkip, skipWithoutBrowser } from './helpers/browser.js';
 
 describe('Chromium extension assisted-fill E2E', () => {
   let browser;
-  beforeAll(async () => { browser = await chromium.launch({ headless: true }); }, 30_000);
+  beforeAll(async () => { browser = await launchOrSkip(() => chromium.launch({ headless: true })); }, 30_000);
   afterAll(async () => { await browser?.close(); }, 30_000);
+  skipWithoutBrowser(() => browser);
 
   it('fills approved truthful fields while leaving demographics, attestations, and submit untouched', async () => {
     const page = await browser.newPage();
@@ -31,6 +33,7 @@ describe('Chromium extension assisted-fill E2E', () => {
       <button id="submit" type="submit">Submit application</button></form>
       <script>document.querySelector('#submit').addEventListener('click',e=>{e.preventDefault();globalThis.__submitClicks++})</script>
     `);
+    await page.addScriptTag({ path: resolve('extension/fieldLabels.js') });
     await page.addScriptTag({ path: resolve('extension/content.js') });
     const result = await page.evaluate(() => new Promise((resolveResult) => {
       globalThis.__jobAgentListener({
@@ -72,6 +75,7 @@ describe('Chromium extension assisted-fill E2E', () => {
         <select id="inv"><option value="">Choose</option><option>Yes</option><option>No</option></select></label>
       <label>Desired salary <input id="salary"></label>
       <label>Notice period <input id="notice"></label></form>`);
+    await page.addScriptTag({ path: resolve('extension/fieldLabels.js') });
     await page.addScriptTag({ path: resolve('extension/content.js') });
     const result = await page.evaluate(() => new Promise((done) => globalThis.__jobAgentListener({
       type: 'JOB_AGENT_FILL',
@@ -108,6 +112,7 @@ describe('Chromium extension assisted-fill E2E', () => {
     });
     await page.setContent(`<style>input{display:block;width:240px;height:28px}</style>
       <form><h2>Job application</h2><label>Resume/CV <input id="cv" type="file"></label><label>Email <input id="e"></label></form>`);
+    await page.addScriptTag({ path: resolve('extension/fieldLabels.js') });
     await page.addScriptTag({ path: resolve('extension/content.js') });
     await page.evaluate(() => new Promise((done) => globalThis.__jobAgentListener({
       type: 'JOB_AGENT_FILL',
@@ -146,9 +151,10 @@ describe('Chromium extension assisted-fill E2E', () => {
       globalThis.chrome = { runtime: { onMessage: { addListener(fn) { globalThis.__jobAgentListener = fn; } } } };
     });
     await page.setContent('<style>input{width:240px;height:28px}</style><label>Location <input id="search-location"></label>');
+    await page.addScriptTag({ path: resolve('extension/fieldLabels.js') });
     await page.addScriptTag({ path: resolve('extension/content.js') });
     const result = await page.evaluate(() => new Promise((done) => globalThis.__jobAgentListener({
-      type: 'JOB_AGENT_FILL', payload: { job: { id: 'j1' }, profile: { location: { city: 'Morrisville' } } }, connection: { trustedHost: true },
+      type: 'JOB_AGENT_FILL', payload: { job: { id: 'j1' }, profile: { location: { city: 'Springfield' } } }, connection: { trustedHost: true },
     }, null, done)));
     expect(await page.inputValue('#search-location')).toBe('');
     expect(result.filled).toHaveLength(0);
@@ -168,6 +174,7 @@ describe('Chromium extension assisted-fill E2E', () => {
       <button id="apply">Apply Now</button>
       <script>document.querySelector('#apply').addEventListener('click',()=>globalThis.__applyClicks++)</script>
     `);
+    await page.addScriptTag({ path: resolve('extension/fieldLabels.js') });
     await page.addScriptTag({ path: resolve('extension/content.js') });
     const result = await page.evaluate(() => new Promise((done) => globalThis.__jobAgentListener({
       type: 'JOB_AGENT_FILL',

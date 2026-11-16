@@ -12,11 +12,14 @@ import { writeJobTracker } from '../../reports/jobTracker.js';
 import { sanitizeErrorMessage } from '../../utils/failureRca.js';
 import { buildExportRows, exportRowsToCsv } from '../data.js';
 import { dataQualitySummary, freshnessSummary } from '../dataQuality.js';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { readBody, sendJson } from '../httpHelpers.js';
 import { NOT_HANDLED } from './notHandled.js';
-import { dirname, relative, sep } from 'node:path';
-import { lastAutoBackupAt, listBackups } from '../../logging/backup.js';
+import { basename, dirname, join, relative, sep } from 'node:path';
+import { backupStamp, lastAutoBackupAt, listBackups } from '../../logging/backup.js';
+import { exportBundle } from '../../logging/bundle.js';
+import { coverageTable, readCoverage } from '../../automation/coverageProbe.js';
+import { PACKAGE_VERSION } from '../../version.js';
 import { buildIcs, openFollowUps } from '../../reports/calendar.js';
 import { embedSettings } from '../../llm/embeddings.js';
 import { readRerank, rerank } from '../../scoring/semanticRerank.js';
@@ -77,6 +80,16 @@ export async function handleSystemRoutes(ctx, req, res, { path }) {
     // Settings page's system-health panel. Doctor spawns Python etc., so it
     // runs on demand only, never on the landing path.
     return sendJson(res, 200, await ctx.healthReport());
+  }
+  // What auto-fill finds and can answer, per ATS, from stored probes (audit A1).
+  if (req.method === 'GET' && path === '/api/coverage') {
+    const root = ctx.config?.root;
+    return sendJson(res, 200, coverageTable(root ? readCoverage(root) : []));
+  }
+  // A code to pair the browser extension with this dashboard (audit A12).
+  if (req.method === 'POST' && path === '/api/extension-pairing') {
+    try { ctx.extensionKeyForPairing(); } catch (err) { return sendJson(res, 409, { error: err.message }); }
+    return sendJson(res, 200, ctx.pairing.issue());
   }
   if (req.method === 'GET' && path === '/api/export/jobs.csv') {
     const csv = exportRowsToCsv(buildExportRows(ctx.db, { now: ctx.nowDate() }));
@@ -170,6 +183,45 @@ export async function handleSystemRoutes(ctx, req, res, { path }) {
     } catch (err) {
       return sendJson(res, 500, { error: `Backup failed: ${sanitizeErrorMessage(err.message)}` });
     }
+  }
+  // Everything personal in ONE file, to move to another computer (P1-6, S1:
+  // this was a command line only). Written to exports/ in the workspace, then
+  // downloaded by name; the name is checked, so no other file can be served.
+  if (req.method === 'POST' && path === '/api/export/bundle') {
+    const root = ctx.config?.root;
+    if (!root) return sendJson(res, 400, { error: 'This dashboard has no workspace folder to export.' });
+    const body = await readBody(req);
+    const passphrase = typeof body?.passphrase === 'string' && body.passphrase.length ? body.passphrase : null;
+    if (passphrase && passphrase.length < 8) {
+      return sendJson(res, 400, { error: 'Use a passphrase of at least 8 characters, or leave it empty.' });
+    }
+    const name = `jobagent-${backupStamp().replace(/[^0-9A-Za-z-]/g, '-')}.jobagent`;
+    try {
+      const r = await (ctx.deps.exportBundleImpl ?? exportBundle)(root, join(root, 'exports', name),
+        { passphrase, appVersion: PACKAGE_VERSION });
+      return sendJson(res, 200, {
+        ok: true, name: basename(r.file), databases: r.databases, files: r.files, bytes: r.bytes, encrypted: r.encrypted,
+      });
+    } catch (err) {
+      return sendJson(res, 500, { error: `Export failed: ${sanitizeErrorMessage(err.message)}` });
+    }
+  }
+  if (req.method === 'GET' && path.startsWith('/api/export/bundle/')) {
+    const root = ctx.config?.root;
+    const name = decodeURIComponent(path.slice('/api/export/bundle/'.length));
+    if (!root || !/^jobagent-[0-9A-Za-z-]{1,60}\.jobagent$/.test(name)) {
+      return sendJson(res, 404, { error: 'no such export' });
+    }
+    const file = join(root, 'exports', name);
+    if (!existsSync(file)) return sendJson(res, 404, { error: 'no such export' });
+    res.writeHead(200, {
+      'content-type': 'application/octet-stream',
+      'content-length': statSync(file).size,
+      'content-disposition': `attachment; filename="${name}"`,
+      'content-security-policy': "default-src 'none'; frame-ancestors 'none'",
+    });
+    res.end(readFileSync(file));
+    return;
   }
   return NOT_HANDLED;
 }

@@ -44,8 +44,8 @@ describe('US state recognition', () => {
   });
 
   it('prefers a spelled-out state over a bare code', () => {
-    expect(usLocationSignal('Morrisville, North Carolina')).toMatchObject({
-      isUs: true, strength: 'name', state: 'NC',
+    expect(usLocationSignal('Springfield, Illinois')).toMatchObject({
+      isUs: true, strength: 'name', state: 'IL',
     });
     expect(usLocationSignal('Remote - United States')).toMatchObject({
       isUs: true, strength: 'national',

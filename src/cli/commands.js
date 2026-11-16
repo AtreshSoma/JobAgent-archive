@@ -17,6 +17,7 @@
  * isolation; the thin CLI in src/index.js wires the real ones.
  */
 
+import { clampConcurrency, hostKey, runLimited } from '../utils/hostScheduler.js';
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
@@ -40,6 +41,7 @@ import { classifyEmployment } from '../scoring/employmentClassifier.js';
 import { scoreJob, freshnessModelFor } from '../scoring/scorer.js';
 import { explainScore } from '../scoring/explainScore.js';
 import { scoringFingerprint } from '../scoring/fingerprint.js';
+import { masterResumeLines } from '../resume/evidenceMap.js';
 import { assistApply } from '../automation/applyRunner.js';
 import { packetOwnershipCheck } from '../apply/applicationPacket.js';
 import { EVENT_TYPES } from '../logging/jobLogger.js';
@@ -340,6 +342,7 @@ export async function runRescore({ config, db, logger, deps = {} } = {}) {
     const sponsorship = classifySponsorship(job, config.scoring.sponsorship);
     const score = scoreJob(job, {
       scoring: config.scoring, sponsorship, candidate: config.candidate, now, freshnessModel: freshnessModelFor(config),
+      evidenceLines: masterResumeLines(config.root),
     });
     const { tier, explanation } = explainScore(score, config.scoring, { candidate: config.candidate });
     db.upsertJob({
@@ -356,6 +359,15 @@ export async function runRescore({ config, db, logger, deps = {} } = {}) {
       discard_reason: tier === 'Discard' ? 'below score threshold on re-score' : null,
     });
     counters.jobs_rescored += 1;
+  }
+
+  // Read the stated pay of any row that has not been read yet (audit D6). The
+  // re-score has just visited every row, so this is the natural place to catch
+  // up a store written before the pay columns existed.
+  if (typeof db.backfillPay === 'function') {
+    const pay = db.backfillPay();
+    counters.pay_checked = pay.checked;
+    counters.pay_stated = pay.stated;
   }
 
   logger?.event?.(EVENT_TYPES.SCORE_EXPLAINED, {
@@ -449,7 +461,7 @@ export async function ingestUrl({ config, db, logger, url, deps = {} } = {}) {
   // penalty and reason, not only as a caveat.
   const score = scoreJob(job, {
     scoring: config.scoring, sponsorship, candidate: config.candidate, now, exclusions: config.exclusions,
-    freshnessModel: freshnessModelFor(config),
+    freshnessModel: freshnessModelFor(config), evidenceLines: masterResumeLines(config.root),
   });
   const { tier, explanation } = explainScore(score, config.scoring, { candidate: config.candidate });
   const fullExplanation = caveat ? `${caveat} ${explanation}` : explanation;
@@ -587,6 +599,8 @@ export async function runAssist({ config, db, logger, mode, options = {}, deps =
   const counters = { ...emptyCounters(), jobs_skipped_already_applied: 0, jobs_skipped_not_owned: 0 };
   let dailyCount = db.countAppliedOnLocalDay?.(deps.now ?? new Date(), config?.candidate?.location?.timezone ?? null) ?? db.countAppliedOn?.(isoDate(deps.now)) ?? 0;
 
+  // Decide, in order and synchronously, which approvals are worth a browser.
+  const queue = [];
   for (const approval of approvals) {
     // Idempotency guard: never re-assist a job that was already submitted — or
     // whose submission is unverified (re-filling could double-apply). Re-running
@@ -621,26 +635,38 @@ export async function runAssist({ config, db, logger, mode, options = {}, deps =
         `skipping: this packet is not the active candidate's — ${owned.reason}; prepare it again`);
       continue;
     }
-
-    const result = await assistFn({
-      packet, config, mode: effectiveMode, approval, dailyCount, options: assistOptions,
-      // A confirmation page seen after hand-off is recorded as a human
-      // submission awaiting the user's confirmation (never applied=1).
-      deps: { onHumanSubmitted: (update) => recordAssistResult(db, approval.job_id, update), ...deps },
-    });
-    results.push(result);
-    counters.jobs_assisted += 1;
-    // The daily cap is enforced by the runner against THIS number, so a batch
-    // that auto-submits must count its own submissions or it can exceed the
-    // cap by the size of the batch.
-    if (result?.submitted === true) dailyCount += 1;
-    recordAssistResult(db, approval.job_id, result);
-    logger?.event?.(EVENT_TYPES.PREFILL_STARTED, {
-      jobId: approval.job_id,
-      message: `assist ${result.status}`,
-      meta: { status: result.status, blockers: result.blockers?.length ?? 0 },
-    });
+    queue.push({ approval, packet });
   }
+
+  // Fill them one at a time, or a few tabs at once on different hosts (audit
+  // A11). The default is one. Every fill still stops before submit.
+  const concurrency = clampConcurrency(options.concurrency ?? config?.runtime?.assistConcurrency ?? 1);
+  const filled = await runLimited(queue, {
+    concurrency,
+    keyOf: ({ packet }) => hostKey(packet.job?.url),
+    shouldCancel: deps.shouldCancel,
+    worker: async ({ approval, packet }) => {
+      const result = await assistFn({
+        packet, config, mode: effectiveMode, approval, dailyCount, options: assistOptions,
+        // A confirmation page seen after hand-off is recorded as a human
+        // submission awaiting the user's confirmation (never applied=1).
+        deps: { onHumanSubmitted: (update) => recordAssistResult(db, approval.job_id, update), ...deps },
+      });
+      counters.jobs_assisted += 1;
+      // The daily cap is enforced by the runner against THIS number, so a batch
+      // that auto-submits must count its own submissions or it can exceed the
+      // cap by the size of the batch.
+      if (result?.submitted === true) dailyCount += 1;
+      recordAssistResult(db, approval.job_id, result);
+      logger?.event?.(EVENT_TYPES.PREFILL_STARTED, {
+        jobId: approval.job_id,
+        message: `assist ${result.status}`,
+        meta: { status: result.status, blockers: result.blockers?.length ?? 0 },
+      });
+      return result;
+    },
+  });
+  results.push(...filled.filter((r) => r !== undefined));
 
   return { results, counters };
 }

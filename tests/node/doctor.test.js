@@ -17,7 +17,7 @@ const base = loadTestConfig({ loadEnv: false, env: {} });
 const fullCandidate = {
   identity: { fullName: 'Priya Raghunathan', links: { linkedin: 'https://linkedin.com/in/x', github: '', portfolio: '' } },
   contact: { email: 'a@example.com', phone: '5550100' },
-  location: { street: '', city: 'Morrisville', state: 'NC', zip: '27560', country: 'United States' },
+  location: { street: '', city: 'Springfield', state: 'IL', zip: '62701', country: 'United States' },
   workAuthorization: { status: 'H-1B', requiresSponsorship: true },
   targetTitles: ['Senior Data Engineer'],
 };

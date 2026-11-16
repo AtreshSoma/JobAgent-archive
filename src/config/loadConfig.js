@@ -18,6 +18,7 @@ import { getRuntimeSettings } from '../utils/credentialManager.js';
 import { readUserSettings, applyUserSettings } from './userSettings.js';
 import { configureGateThreshold } from '../scoring/explainScore.js';
 import { normalizeProfile } from '../profile/model.js';
+import { applyAnswerFallbacks } from './answerFallbacks.js';
 import { PROFILE_OWNED_ANSWER_IDS } from '../profile/derive.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -228,6 +229,7 @@ export function loadConfig({ root = PROJECT_ROOT, loadEnv = true, env = process.
   // file has lost it (an older build's answer save rewrote the file without
   // it). Without the guard, a profile that does not state its own salary or
   // experience is answered with the previous candidate's. See effectiveAnswers.
+  // Before the fallbacks below, which read the same answers.
   if (bundle.profile?.id && bundle.screeningAnswers && typeof bundle.screeningAnswers === 'object') {
     const sa = bundle.screeningAnswers;
     if (sa.profileId && sa.profileId !== bundle.profile.id) {
@@ -236,6 +238,16 @@ export function loadConfig({ root = PROJECT_ROOT, loadEnv = true, env = process.
     } else if (!sa.profileId || !Array.isArray(sa.profileOwnedAnswerIds)) {
       bundle.screeningAnswers = { ...sa, profileId: bundle.profile.id, profileOwnedAnswerIds: sa.profileOwnedAnswerIds ?? [...PROFILE_OWNED_ANSWER_IDS] };
     }
+  }
+
+  // Personal facts no screen edits (work authorization, the cover letter's
+  // years and sponsorship sentence) take the person's own Saved answers when
+  // they are still template text. In memory only; see ./answerFallbacks.js.
+  {
+    const { candidate, coverLetter, filled } = applyAnswerFallbacks(bundle);
+    bundle.candidate = candidate;
+    bundle.coverLetter = coverLetter;
+    bundle.filledFromAnswers = filled;
   }
 
   // Consumers that only ever see a DB row (the dashboard data layer, the

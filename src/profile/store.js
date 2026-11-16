@@ -735,6 +735,53 @@ export async function refreshBackgroundFromResume(root, resumePath, { extractDoc
 }
 
 /**
+ * Add a skill to look for in postings, to the ACTIVE profile (audit R12).
+ *
+ * It comes from a posting's requirement section, word for word, and goes in
+ * only when the person chooses it. It widens what is looked for (scoring's
+ * market vocabulary); it claims nothing about the person.
+ *
+ * @param {string} root
+ * @param {string} phrase
+ * @returns {{id: string, added: boolean, watchSkills: string[]}}
+ */
+export function watchSkillInActiveProfile(root, phrase) {
+  const active = readActiveProfile(root);
+  if (!active) throw new Error('no profile is active — create one first');
+  const skill = String(phrase ?? '').trim();
+  if (!skill || skill.length > 60) throw new Error('send a skill of 1 to 60 characters');
+  const current = active.searchIntent?.watchSkills ?? [];
+  if (current.some((s) => normalizeText(s) === normalizeText(skill))) {
+    return { id: active.id, added: false, watchSkills: current };
+  }
+  const watchSkills = [...current, skill];
+  saveProfile(root, { ...active, searchIntent: { ...active.searchIntent, watchSkills } });
+  return { id: active.id, added: true, watchSkills };
+}
+
+/**
+ * Save a confirmed number of years with a skill in the ACTIVE profile (audit
+ * A6). It lives in the profile, not only candidate.json, because activating a
+ * profile regenerates candidate.json from it.
+ *
+ * @param {string} root
+ * @param {string} subject the skill the question named
+ * @param {string} answer what the person confirmed, e.g. "7 years"
+ * @returns {{id: string, subject: string, answer: string}}
+ */
+export function saveSkillExperienceInActiveProfile(root, subject, answer) {
+  const active = readActiveProfile(root);
+  if (!active) throw new Error('no profile is active — create one first');
+  const skill = String(subject ?? '').trim().toLowerCase();
+  const years = String(answer ?? '').replace(/\s+/g, ' ').trim();
+  if (!skill || skill.length > 60) throw new Error('send the skill, 1 to 60 characters');
+  if (!years || years.length > 40) throw new Error('send the number of years, up to 40 characters, such as "7 years"');
+  const skillExperience = { ...(active.background?.skillExperience ?? {}), [skill]: years };
+  saveProfile(root, { ...active, background: { ...active.background, skillExperience } });
+  return { id: active.id, subject: skill, answer: years };
+}
+
+/**
  * Merge selected evidence from a proposal into the ACTIVE profile.
  *
  * Additive only, and it only ever touches the two things a resume is evidence

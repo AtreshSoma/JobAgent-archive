@@ -8,7 +8,8 @@ import { statusLabel } from './board.js';
 import { DECISION_REASONS, reasonLabel, renderDetail, verdictLabel } from './detail.js';
 import { confirmAction, openDialog } from './dialogs.js';
 import { scheduleRefresh } from './mutations.js';
-import { autofillBlockedReason } from './today.js';
+import { autofillBlockedReason, prepareBlockedNotice } from './today.js';
+import { revealSetupCard } from './setup.js';
 import { pollRun } from './runs.js';
 import { closeMenu } from './menus.js';
 import { bulkStepReasons, primaryBulkStep } from './bulk.js';
@@ -181,8 +182,10 @@ export async function batchAutofill({ ids = null } = {}) {
 
 export async function batchPrepare() {
   if (state.running) { toast('A run is in progress — wait for it to finish.', 'bad'); return; }
+  if (prepareBlockedNotice()) { toast('Prepare is off until setup is finished. The setup card shows what is left.', 'bad'); revealSetupCard(); return; }
   const ids = [...state.selected];
   if (!ids.length) return;
+  for (const id of ids) state.prepareFailures.delete(id);
   try {
     const result = await postJson('/api/prepare-batch', { jobIds: ids });
     toast(`Preparing ${result.queued} packet(s)…`);
@@ -224,7 +227,9 @@ export async function batchDecide(decision, { ids = [...state.selected] } = {}) 
     scheduleRefresh(0);
     const done = new Set(result.updated);
     const closes = decision === 'rejected' || decision === 'archived';
-    offerUndo(`Marked ${result.updated.length} as ${decision}`,
+    offerUndo(decision === 'clear'
+      ? `Cleared the decision on ${result.updated.length} job(s)`
+      : `Marked ${result.updated.length} as ${decision}`,
       new Map([...before].filter(([id]) => done.has(id))),
       closes ? { reasonFor: { jobIds: [...done], decision } } : {});
   } catch (err) { toast(err.message, 'bad'); }

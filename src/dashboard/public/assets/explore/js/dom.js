@@ -66,6 +66,8 @@ const ICONS = {
   stop: 'M7.5 7.5h9v9h-9z',
   lock: 'M7.5 11V8a4.5 4.5 0 0 1 9 0v3M6 11h12v9H6z',
   mail: 'M4 6.5h16v11H4zM4.5 7l7.5 6 7.5-6',
+  plus: 'M12 5.5v13M5.5 12h13',
+  down: 'M6 9.5l6 6 6-6',
 };
 
 export function icon(name, { size = 16, label = null } = {}) {
@@ -91,6 +93,11 @@ export function svg(tag, attrs = {}, ...children) {
   }
   for (const child of children.flat(Infinity)) if (child) el.append(child);
   return el;
+}
+
+/** How an in-page jump should move: a glide, or at once for a reader who prefers reduced motion. */
+export function glide() {
+  return prefersReducedMotion() ? 'instant' : 'smooth';
 }
 
 /** Does the person prefer reduced motion? Read at call time, so a change is respected. */

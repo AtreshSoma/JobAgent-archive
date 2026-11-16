@@ -857,7 +857,7 @@ describe('reports, prepare-selected, and submission-record endpoints', () => {
   });
 });
 
-describe('static assets + /learn interview-prep mini-site', () => {
+describe('static assets', () => {
   let db;
   let dash;
 
@@ -870,31 +870,8 @@ describe('static assets + /learn interview-prep mini-site', () => {
     db.close();
   });
 
-  it('redirects /learn -> /learn/ so the SPA relative asset URLs resolve', async () => {
-    const res = await fetch(dash.url + '/learn', { redirect: 'manual' });
-    expect(res.status).toBe(302);
-    expect(res.headers.get('location')).toBe('/learn/');
-  });
-
-  it('serves the interview academy shell at /learn/', async () => {
-    const res = await fetch(dash.url + '/learn/');
-    expect(res.status).toBe(200);
-    expect(res.headers.get('content-type')).toContain('text/html');
-    expect(await res.text()).toContain('Interview Academy');
-  });
-
-  it('serves /learn assets with the right content-types', async () => {
-    const css = await fetch(dash.url + '/learn/assets/css/style.css');
-    expect(css.status).toBe(200);
-    expect(css.headers.get('content-type')).toContain('text/css');
-
-    const js = await fetch(dash.url + '/learn/assets/js/app.js');
-    expect(js.status).toBe(200);
-    expect(js.headers.get('content-type')).toContain('javascript');
-  });
-
   it('404s a missing static asset', async () => {
-    expect((await fetch(dash.url + '/learn/assets/js/does-not-exist.js')).status).toBe(404);
+    expect((await fetch(dash.url + '/assets/js/does-not-exist.js')).status).toBe(404);
   });
 
   it('never serves files outside the public dir via traversal', async () => {
@@ -904,11 +881,5 @@ describe('static assets + /learn interview-prep mini-site', () => {
     const res = await fetch(dash.url + '/assets/..%2f..%2fserver.js');
     expect([403, 404]).toContain(res.status);
     expect(await res.text()).not.toContain('createDashboardServer');
-  });
-
-  it('the dashboard shell links to the interview academy', async () => {
-    const html = await fetch(dash.url + '/').then((r) => r.text());
-    expect(html).toContain('/learn/');
-    expect(html).toContain('Interview Prep');
   });
 });

@@ -14,6 +14,7 @@ import { chromium } from 'playwright';
 
 import { openDatabase } from '../../src/logging/db.js';
 import { startDashboard } from '../../src/dashboard/server.js';
+import { browserUnavailable } from './helpers/browser.js';
 
 const LEARN = join(process.cwd(), 'src', 'dashboard', 'public', 'learn');
 
@@ -30,10 +31,11 @@ describe('Interview Prep page', () => {
     let browser;
     let dash;
     let db;
+    let available = true;
     beforeAll(async () => {
       db = openDatabase({ path: ':memory:' });
       dash = await startDashboard({ config: {}, db, logger: null, port: 0, deps: { extensionKey: 'k'.repeat(32) } });
-      browser = await chromium.launch({ headless: true });
+      try { browser = await chromium.launch({ headless: true }); } catch (err) { available = browserUnavailable(err); }
     }, 60_000);
     afterAll(async () => {
       await browser?.close();
@@ -41,7 +43,8 @@ describe('Interview Prep page', () => {
       db?.close();
     }, 30_000);
 
-    it('navigates from its cards, hero buttons and brand with no CSP violations', async () => {
+    it('navigates from its cards, hero buttons and brand with no CSP violations', async (ctx) => {
+      if (!available) return ctx.skip();
       const page = await browser.newPage();
       const errors = [];
       page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });

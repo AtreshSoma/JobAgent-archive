@@ -28,7 +28,7 @@ const FILL_PLAN = {
 const CANDIDATE = {
   identity: { fullName: 'Priya Raghunathan' },
   contact: { email: 'priya@example.com', phone: '9195550142' },
-  location: { city: 'Morrisville', state: 'North Carolina', country: 'United States' },
+  location: { city: 'Springfield', state: 'Illinois', country: 'United States' },
 };
 
 // Drives REAL Chromium against LOCAL file:// fixtures that reproduce an ATS form

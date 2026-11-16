@@ -54,7 +54,7 @@ describe('screeningQA', () => {
     const r = answerScreeningQuestion('What is your desired salary?', screeningAnswers);
     expect(r.answered).toBe(true);
     expect(r.matchedId).toBe('salary_expectation');
-    expect(r.answer).toContain('150,000');
+    expect(r.answer).toContain('140,000');
   });
 
   it('answers the free-text technical screening questions from the profile', () => {

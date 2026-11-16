@@ -26,7 +26,7 @@
   "workAuthorization": {
     "status": "H-1B",
     "requiresSponsorship": true,
-    "details": "Currently on H-1B; requires transfer and continued sponsorship."
+    "details": "H-1B holder; the visa must be transferred and sponsored by the next employer."
   },
   "sponsorshipRequired": true,
   "targetTitles": [
@@ -138,11 +138,11 @@
       "institution": "North Carolina State University",
       "degree": "Master of Science",
       "field": "Computer Science",
-      "graduationYear": "2016"
+      "graduationYear": "2015"
     }
   ],
   "salaryPreference": {
-    "display": "Around $150,000 (negotiable)",
+    "display": "Around $140,000 (negotiable)",
     "minAnnualUSD": 150000,
     "targetAnnualUSD": 165000,
     "currency": "USD"

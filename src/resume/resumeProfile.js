@@ -70,7 +70,7 @@ const TITLE_STOPWORDS = new Set([
  *
  *   - the location line  ("Raleigh, NC   |   April 2022 - Present" -> "Raleigh")
  *   - headline taglines  ("Cloud & Data Platform", "Apache Spark & Lakehouse")
- *   - achievement bullets ("Orchestrated DataOps automation with Azure DevOps")
+ *   - achievement bullets ("Automated release pipelines with Azure DevOps")
  *
  * Each of those would otherwise become a search term, costing real requests
  * against real job boards and polluting the board with unrelated rows. A title

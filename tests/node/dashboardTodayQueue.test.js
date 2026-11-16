@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { openDatabase } from '../../src/logging/db.js';
 import {
   todayQueue, dashboardSections, dashboardStats, boardPage, BOARD_FIELDS, MAX_PAGE_LIMIT,
-  classifyAttention, explainStatus, buildReports, buildDocuments, buildMasterResume,
+  classifyAttention, explainStatus, buildReports, buildDocuments, buildMasterResume, BROWSER_INSTALL_FIX,
 } from '../../src/dashboard/data.js';
 
 const NOW = new Date('2026-09-22T15:00:00.000Z');
@@ -53,8 +53,11 @@ describe('A1 — GET /api/today contract (todayQueue)', () => {
     expect(today.systemNotices).toEqual([{
       code: 'browser_unavailable', severity: 'error',
       message: 'Auto-fill can’t start: the Playwright browser is not installed',
-      fix: 'npx playwright install chromium',
+      fix: BROWSER_INSTALL_FIX,
     }]);
+    // No command line in the dashboard (S1): the launcher offers the download.
+    expect(BROWSER_INSTALL_FIX).toMatch(/launcher/);
+    expect(BROWSER_INSTALL_FIX).not.toMatch(/npx|npm run/);
     db.close();
   });
 
@@ -65,13 +68,54 @@ describe('A1 — GET /api/today contract (todayQueue)', () => {
     db.close();
   });
 
-  it('reports template profile values as one notice', () => {
+  it('reports template profile values as one setup notice, not an error', () => {
     const db = openDatabase({ path: ':memory:' });
     const config = { candidate: { identity: { fullName: 'Jane Doe' }, contact: { email: 'you@example.com' } } };
     const notices = todayQueue(db, { now: NOW, config }).systemNotices;
     expect(notices).toHaveLength(1);
-    expect(notices[0]).toMatchObject({ code: 'profile_placeholders', severity: 'error' });
-    expect(notices[0].fix).toMatch(/profile/i);
+    expect(notices[0]).toMatchObject({ code: 'profile_placeholders', severity: 'info' });
+    expect(notices[0].message).toMatch(/^Finish setup to apply: 11 of 13 done$/);
+    expect(notices[0].fix).toMatch(/on hold/i);
+    db.close();
+  });
+
+  it('says WHERE each value is fixed: a screen and a field, never a file or a command (S1)', () => {
+    const db = openDatabase({ path: ':memory:' });
+    const config = {
+      profile: { id: 'casey' },
+      candidate: {
+        identity: { fullName: 'Casey Fixture' },
+        workAuthorization: {
+          status: 'US Citizen | Green Card | H-1B | OPT | ...',
+          details: 'Describe your authorization truthfully — this is used verbatim in screening answers.',
+        },
+      },
+      coverLetter: {
+        yearsOfExperience: "YOUR total years of experience (e.g. '8 years')",
+        includeSponsorshipNote: true,
+        template: { sponsorshipNote: 'YOUR truthful sponsorship sentence, or set includeSponsorshipNote to false.' },
+      },
+    };
+    const [notice] = todayQueue(db, { now: NOW, config }).systemNotices;
+    const items = notice.setup.groups.flatMap((g) => g.items);
+    const byKey = Object.fromEntries(items.map((i) => [i.key, i]));
+
+    // Three stored copies of work authorization are one thing to answer.
+    expect(byKey.authorization).toMatchObject({
+      done: false, personOnly: true, fix: { editor: 'answers', field: 'work_authorization' },
+    });
+    expect(byKey.authorization.values).toContain('US Citizen | Green Card | H-1B | OPT | ...');
+    expect(byKey.yearsExperience).toMatchObject({ done: false, fix: { editor: 'answers', field: 'years_experience' } });
+    expect(JSON.stringify(notice)).not.toMatch(/\.json|npm run|npx /);
+    db.close();
+  });
+
+  it('sends a form-editable field to its box in Your details', () => {
+    const db = openDatabase({ path: ':memory:' });
+    const config = { candidate: { contact: { email: 'you@example.com' } } };
+    const [notice] = todayQueue(db, { now: NOW, config }).systemNotices;
+    const email = notice.setup.groups.find((g) => g.key === 'contact').items.find((i) => i.key === 'email');
+    expect(email).toMatchObject({ done: false, fix: { editor: 'details', field: 'contact.email' } });
     db.close();
   });
 });

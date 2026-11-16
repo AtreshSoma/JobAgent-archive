@@ -9,7 +9,7 @@ import { formIsDirty, isEdited, restoreForm, saveOnlyOnPurpose, snapshotForm, wi
 import {
   parseAnswerError, validateAnswerText, validateEmail, validatePatterns, validatePhone, validateRequired, validateYears,
 } from './validate.js';
-import { setSystemNotices } from './today.js';
+import { loadHealthChecks, scheduleTodayReload, setSystemNotices } from './today.js';
 import { miniTable } from './reports.js';
 
 /* ─────────────────── application profile + question queue ─────────────────── */
@@ -127,6 +127,7 @@ $('profileBody').addEventListener('input', (event) => {
   const target = event.target;
   if (target.matches?.('[data-path]')) {
     if (!detailError(target)?.hidden && !detailProblem(target)) setDetailError(target, '');
+    remarkCell(target);
     refreshDetailsSave();
     return;
   }
@@ -164,13 +165,92 @@ $('profileBody').addEventListener('focusout', (event) => {
  * details form, one queued question at a time, and the saved-answer list. A
  * single "Save" spanning all three would leave it unclear what a click writes.
  */
-export async function openProfile() {
+export async function openProfile({ focus = null } = {}) {
   const body = $('profileBody');
   const stop = slowProgress(body, 'Loading your application profile…');
   profileMessage('');
+  // What the setup checklist sent the person here to fill: marked until filled.
+  asked = new Set(focus?.fields ?? []);
   openDialog($('dlgProfile'));
   // Opening starts from what is stored: nothing typed before is still on screen.
   try { await renderProfile({ keep: false }); } finally { stop(); }
+  if (focus) {
+    // The first asked-for field that has a box here; a field kept elsewhere
+    // (the job titles) is named in the notice at the top instead.
+    const field = (focus.fields ?? []).find((p) => body.querySelector(`[data-path="${cssEscape(p)}"]`)) ?? focus.field;
+    focusProfileField({ ...focus, field });
+  }
+}
+
+/* ─────────────────── missing fields, marked until filled ───────────────────
+   A required box that is empty, or one the setup checklist named, is drawn in
+   red with a "Missing" tag. Typing into it turns the tag to "Ready to save";
+   clearing it again brings the red back. Saving redraws from the server, and a
+   box that is now filled carries no mark at all. A mark never blocks a save:
+   saving the boxes that are done is always allowed. */
+
+/** Paths the setup checklist asked for when it opened the dialog. */
+let asked = new Set();
+
+/** Required profile fields the doctor last reported empty: {path, label}[]. */
+function doctorMissing() {
+  const check = (state.health?.checks ?? []).find((c) => c.id === 'profile' && c.status === 'fail');
+  return Array.isArray(check?.fields) ? check.fields : [];
+}
+
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/** Re-mark one box from what is in it now. */
+function remarkCell(control) {
+  const cell = control.closest('.pf-cell[data-need]');
+  if (!cell) return;
+  const filled = control.value.trim() !== '';
+  cell.classList.toggle('is-missing', !filled);
+  cell.classList.toggle('is-filled', filled);
+  const tag = cell.querySelector('.pf-need');
+  if (tag) tag.textContent = filled ? 'Ready to save' : 'Missing';
+  // The count at the top follows the boxes.
+  const left = $('profileBody').querySelectorAll('.pf-cell.is-missing').length;
+  const count = $('pfMissingCount');
+  if (count) count.textContent = left ? `${left} to fill` : 'All filled, save to keep them';
+  for (const chip of $('profileBody').querySelectorAll('.pf-missing-chip[data-go]')) {
+    const box = $('profileBody').querySelector(`.pf-cell [data-path="${cssEscape(chip.dataset.go)}"]`);
+    chip.classList.toggle('is-done', Boolean(box?.value.trim()));
+  }
+}
+
+/**
+ * Scroll to one field and put the cursor in it: where a setup-card item sends you.
+ * `editor` is 'details' (a box in Your details, by its data-path) or 'answers'
+ * (a Saved answer, by id; the list is opened first). An answer that no longer
+ * exists lands on the Saved answers list instead of nowhere.
+ *
+ * @param {{editor?: string, field?: string}} focus
+ * @returns {boolean} whether the exact field was found
+ */
+export function focusProfileField({ editor = 'details', field = '' } = {}) {
+  const body = $('profileBody');
+  let target;
+  if (editor === 'answers') {
+    body.querySelector('details.pf-saved')?.setAttribute('open', '');
+    target = field ? body.querySelector(`[data-a-answer="${cssEscape(field)}"]`) : null;
+    if (!target) $('pfAnswers')?.scrollIntoView({ block: 'start' });
+  } else {
+    target = field ? body.querySelector(`[data-path="${cssEscape(field)}"]`) : null;
+    if (!target) $('pfDetails')?.scrollIntoView({ block: 'start' });
+  }
+  if (!target) return false;
+  target.scrollIntoView({ block: 'center', behavior: reducedMotion() ? 'auto' : 'smooth' });
+  target.focus({ preventScroll: true });
+  // One soft pulse says "this one" as the box arrives.
+  const cell = target.closest('.pf-cell');
+  if (cell) {
+    cell.classList.remove('is-arrived');
+    void cell.offsetWidth;
+    cell.classList.add('is-arrived');
+    cell.addEventListener('animationend', () => cell.classList.remove('is-arrived'), { once: true });
+  }
+  return true;
 }
 
 export function profileMessage(text, tone = 'muted') {
@@ -223,6 +303,8 @@ export async function renderProfile({ keep = true, committed = null } = {}) {
   body.append(renderProfileFields(data.profile));
   body.append(renderSavedAnswers(data.screening));
   restoreForm(body, pending);
+  // Carried-over typing may already fill a marked box.
+  for (const control of body.querySelectorAll('.pf-cell[data-need] [data-path]')) remarkCell(control);
   rejudgeProfileForm();
   renderHealthProfileFlag();
 }
@@ -309,6 +391,34 @@ function questionCard(q) {
   item.append(el('h5', { class: 'pf-q-text', id: `qt-${q.key}`, text: q.label }), questionMeta(q));
   if (q.note) item.append(el('div', { class: 'attention' }, el('span', { class: 'mark', text: '!' }), el('div', { text: q.note })));
 
+  // A5: this looks like a question you already answered. One press adds this
+  // wording to that answer; nothing is applied until then.
+  if (q.similarTo) {
+    item.append(el('div', { class: 'evidence-note pf-q-suggest' },
+      el('div', { text: `This looks like one you already answered: "${q.similarTo.label}". If it means the same thing, use the same answer.` }),
+      el('button', {
+        type: 'button', class: 'small primary', 'data-action': 'same-as-question', 'data-key': q.key,
+        'data-answer-id': q.similarTo.answerId, text: 'Same answer',
+      })));
+  }
+
+  // A6: the number the work history supports, with the roles behind it. Saved
+  // only when the person presses the button, and editable first.
+  if (q.suggestedExperience) {
+    const x = q.suggestedExperience;
+    item.append(el('div', { class: 'evidence-note pf-q-suggest' },
+      el('div', {},
+        `Your work history suggests ${x.answer} with ${x.subject}, from: `
+        + x.roles.map((r) => `${r.title || 'role'} at ${r.employer || 'an employer'} (${r.start}–${r.end})`).join('; ')
+        + '. Overlaps are counted once and the figure is rounded down. Check it before you use it.'),
+      el('label', { class: 'pf-q-label', for: `qx-${q.key}`, text: `Years with ${x.subject}` }),
+      el('input', { type: 'text', id: `qx-${q.key}`, 'data-q-years': q.key, 'data-subject': x.subject, value: x.answer, autocomplete: 'off', maxlength: '40' }),
+      el('button', {
+        type: 'button', class: 'small primary', 'data-action': 'confirm-skill-years', 'data-key': q.key,
+        text: 'Use this for every form',
+      })));
+  }
+
   // The live form's own choices, as one-click picks. The stored value stays
   // free text; the filler maps it onto whatever the next form calls it.
   const options = (q.options ?? []).map((o) => o.label).filter(Boolean);
@@ -361,51 +471,87 @@ export function renderProfileFields(profile) {
   // State what is actually true of BOTH tiers. Saying "every field has a value"
   // while three optional boxes were blank was an overclaim in exactly the place
   // the page exists to be trusted.
-  const missing = profile.missing ?? [];
-  const blankOptional = (profile.fields ?? []).filter((f) => !f.required && !f.filled).length;
+  const fields = profile.fields ?? [];
+  // What to mark: a required box that is empty (or still template text), and
+  // any box the doctor or the setup checklist named.
+  const named = new Set([...doctorMissing().map((f) => f.path), ...asked]);
+  const unanswered = (f) => !f.filled || f.placeholder === true;
+  const marked = new Set(fields.filter((f) => unanswered(f) && (f.required || named.has(f.path))).map((f) => f.path));
+  // Named but kept outside this form (the job titles live in the search profile).
+  const formPaths = new Set(fields.map((f) => f.path));
+  const elsewhere = doctorMissing().filter((f) => !formPaths.has(f.path));
+
+  const blankOptional = fields.filter((f) => !f.required && !f.filled && !marked.has(f.path)).length;
   const optionalNote = blankOptional
     ? ` ${blankOptional} optional field(s) are blank — a form asking for one gets nothing.`
     : '';
-  section.append(el('div', { class: missing.length ? 'attention' : 'evidence-note' },
-    missing.length ? el('span', { class: 'mark', text: '!' }) : null,
-    el('div', {}, missing.length
-      ? `${missing.length} required field(s) are empty, so every application leaves them blank — `
-        + `which is what turns an auto-fill run into "blocked".${optionalNote}`
-      : `Every required field has a value, typed onto forms exactly as written here.${optionalNote}`)));
+  if (marked.size || elsewhere.length) {
+    const chips = el('div', { class: 'pf-missing-chips' });
+    for (const f of fields.filter((x) => marked.has(x.path))) {
+      chips.append(el('button', {
+        type: 'button', class: 'pf-missing-chip', 'data-action': 'pf-field', 'data-go': f.path,
+        title: `Go to ${f.label}`, text: f.label,
+      }));
+    }
+    section.append(el('div', { class: 'pf-missing', role: 'group', 'aria-labelledby': 'pfMissingTitle' },
+      el('div', { class: 'pf-missing-head' },
+        el('b', { id: 'pfMissingTitle', text: 'Fill these in to apply' }),
+        el('span', { class: 'pf-missing-count', id: 'pfMissingCount', 'aria-live': 'polite', text: `${marked.size} to fill` })),
+      el('p', { class: 'fineprint muted', text: 'Every application leaves an empty one blank, which is what stops an auto-fill run. Press a name to go to it.' }),
+      marked.size ? chips : null,
+      elsewhere.length
+        ? el('p', { class: 'fineprint muted', text: `Also missing: ${joinWords(elsewhere.map((f) => f.label))}. Set ${elsewhere.length === 1 ? 'it' : 'them'} from the profile menu, Edit profile.` })
+        : null));
+  } else {
+    section.append(el('div', { class: 'evidence-note' },
+      el('div', {}, `Every required field has a value, typed onto forms exactly as written here.${optionalNote}`)));
+  }
 
   section.append(el('p', { class: 'fineprint muted pf-hint', id: 'pfLegend' },
     el('span', { class: 'pf-req', 'aria-hidden': 'true', text: '* ' }),
     'Required by most application forms. Everything else is optional.'));
 
   const grid = el('div', { class: 'pf-grid' });
-  for (const field of profile.fields ?? []) {
-    const cell = el('div', { class: 'pf-cell' });
+  for (const field of fields) {
+    const need = marked.has(field.path);
+    const cell = el('div', { class: `pf-cell${need ? ' is-missing' : ''}`, 'data-need': need ? '' : null });
     const errorId = `pf-err-${field.field}`;
     cell.append(el('label', { for: `pf-${field.field}` },
       field.label,
       field.required
         ? el('span', { class: 'pf-req', title: 'Required by most application forms', text: ' *' })
-        : el('span', { class: 'opt', text: ' (optional)' })));
+        : el('span', { class: 'opt', text: ' (optional)' }),
+      need ? el('span', { class: 'pf-need', text: 'Missing' }) : null));
     // A value that is still the shipped template text ("Your City") is not the
     // person's answer. It is shown as grey placeholder text in an EMPTY box, so
     // it reads as "fill this in" and is never submitted as if it were theirs.
     const template = field.placeholder === true;
-    cell.append(el('input', {
-      type: field.type === 'url' ? 'url' : 'text',
+    // What the field rules above need: its name in messages, whether it is
+    // required, and which format check applies.
+    const common = {
       id: `pf-${field.field}`, 'data-path': field.path,
-      value: template ? '' : (field.value ?? ''),
-      placeholder: template ? field.value : null,
-      'data-template': template ? '' : null,
-      // What the field rules above need: its name in messages, whether it is
-      // required, and which format check applies.
       'data-label': field.label,
       'data-required': field.required ? '' : null,
       'data-kind': field.field,
       'aria-describedby': errorId,
-      // type=email/tel would let the browser block a save with its own bubble,
-      // which hides the specific message under the box. The rules live here and on the server.
-      inputmode: field.type === 'tel' ? 'tel' : null,
-    }));
+    };
+    if (field.type === 'choice') {
+      // A question with fixed answers (visa sponsorship): a choice, never free text.
+      cell.append(el('select', common, ...(field.options ?? []).map((o) => el('option', {
+        value: o.value, selected: o.value === (field.value ?? '') ? true : null, text: o.label,
+      }))));
+    } else {
+      cell.append(el('input', {
+        ...common,
+        type: field.type === 'url' ? 'url' : 'text',
+        value: template ? '' : (field.value ?? ''),
+        placeholder: template ? field.value : null,
+        'data-template': template ? '' : null,
+        // type=email/tel would let the browser block a save with its own bubble,
+        // which hides the specific message under the box. The rules live here and on the server.
+        inputmode: field.type === 'tel' ? 'tel' : null,
+      }));
+    }
     cell.append(el('p', { class: 'field-error', id: errorId, hidden: true }));
     if (field.hint) cell.append(el('div', { class: 'faint fineprint', text: field.hint }));
     grid.append(cell);
@@ -547,8 +693,22 @@ export async function saveProfileDetails() {
       ? `Saved — ${result.changed.length} field(s) changed. New applications use these values.`
       : 'No changes to save.', 'good');
     await renderProfile({ committed: '[data-path]' });
+    // A saved value can clear a template notice and turn Prepare back on.
+    scheduleTodayReload();
+    // ...and take its line off the setup checklist now, not on the next visit.
+    if (doctorMissing().length) loadHealthChecks();
   } catch (err) {
     profileMessage(err.message, 'st-blocked');
+    // A refusal about one box is also said under that box, with the cursor on it.
+    const fields = err.body?.fields ?? {};
+    let first = null;
+    for (const [path, message] of Object.entries(fields)) {
+      const input = $('profileBody').querySelector(`[data-path="${cssEscape(path)}"]`);
+      if (!input) continue;
+      setDetailError(input, message);
+      first ??= input;
+    }
+    first?.focus();
   }
 }
 
@@ -571,6 +731,31 @@ export async function saveQuestionAnswer(key) {
   } catch (err) {
     profileMessage(err.message, 'st-blocked');
   }
+}
+
+/** Use an earlier answer for a reworded question (A5). */
+export async function sameAsQuestion(key, answerId) {
+  profileMessage('Saving…');
+  try {
+    await postJson('/api/profile/questions/same-as', { key, answerId });
+    toast('Done. Forms that word it this way now use that answer.', 'good');
+    profileMessage('');
+    await renderProfile();
+  } catch (err) { profileMessage(err.message, 'st-blocked'); }
+}
+
+/** Save the confirmed years with a skill (A6); later forms are answered with it. */
+export async function confirmSkillYears(key) {
+  const box = $('profileBody').querySelector(`[data-q-years="${cssEscape(key)}"]`);
+  const answer = box?.value ?? '';
+  if (!answer.trim()) { profileMessage('Type the number of years first.', 'st-blocked'); return; }
+  profileMessage('Saving…');
+  try {
+    await postJson('/api/profile/skill-experience', { key, subject: box.dataset.subject, answer });
+    toast(`Saved. Forms asking about ${box.dataset.subject} now get "${answer.trim()}".`, 'good');
+    profileMessage('');
+    await renderProfile();
+  } catch (err) { profileMessage(err.message, 'st-blocked'); }
 }
 
 export async function setQuestionStatus(key, status) {
@@ -622,6 +807,10 @@ export async function saveAllAnswers({ removeId = null } = {}) {
     // Every answer row was just written, so those take the stored value; an
     // unsaved details edit or queued-question answer is still the person's.
     await renderProfile({ committed: '[data-a-answer], [data-a-patterns]' });
+    // Work authorization and the cover letter's facts are filled from these
+    // answers (src/config/answerFallbacks.js): saving one can clear the template
+    // notice and turn Prepare back on, so the page must hear about it now.
+    scheduleTodayReload();
   } catch (err) {
     // The server names the answer it refused (`answer "<id>": why`). Put the
     // reason ON that answer, keep what was typed, and move the cursor there.
@@ -656,11 +845,12 @@ export function renderHealthProfileFlag() {
   // Each count bold inside its own words ("1 empty field"). A separate bold
   // total in front read as "1 1 empty field" — the number twice.
   const parts = [];
-  if (open) parts.push([open, ` question${open === 1 ? '' : 's'}`]);
-  if (missing) parts.push([missing, ` empty field${missing === 1 ? '' : 's'}`]);
+  if (missing) parts.push([missing, ` profile field${missing === 1 ? '' : 's'} empty`]);
+  if (open) parts.push([open, ` question${open === 1 ? '' : 's'} to answer`]);
   const nodes = parts.flatMap(([n, words], i) => [...(i ? [el('span', { class: 'l', text: ' · ' })] : []),
     el('b', { text: String(n) }), el('span', { class: 'l', text: words })]);
-  host.append(el('button', {
+  // It leads the attention group: an empty field stops every application.
+  (host.querySelector('.health-attn') ?? host).prepend(el('button', {
     type: 'button', class: 'stat clickable attn pf-flag', 'data-action': 'open-profile',
     title: 'Open the application profile to fill these in.',
   }, ...nodes));
@@ -707,8 +897,77 @@ export async function openHealth() {
     c.detail ?? '—',
     c.fix ?? '—',
   ])));
+  await renderCoverage(body);
+  renderExtensionPairing(body);
+  renderSignOut(body);
   await renderBackups(body);
   await renderLlmUsage(body);
+}
+
+/**
+ * Auto-fill coverage per ATS (audit A1): what a dry run found and could answer
+ * on probed forms. Said plainly on the table: saved pages and local fixtures,
+ * page one of each form, no live site.
+ */
+export async function renderCoverage(host) {
+  let table;
+  try { table = await api('/api/coverage'); } catch { return; }
+  const section = el('section', { class: 'coverage', 'aria-labelledby': 'coverageTitle' });
+  section.append(el('h3', { id: 'coverageTitle', text: 'Auto-fill coverage' }));
+  if (!table.rows?.length) {
+    section.append(el('p', { class: 'muted', text: 'No form has been probed yet. A probe reads one application page without typing or clicking, and records which questions auto-fill could answer.' }));
+  } else {
+    section.append(miniTable(['ATS', 'Forms', 'Fields found', 'Would fill', 'Need you', 'Coverage'], table.rows.map((r) => [
+      r.ats, fmt(r.forms), fmt(r.found), fmt(r.mapped),
+      r.requiredNeedsYou ? `${fmt(r.needsYou)} (${fmt(r.requiredNeedsYou)} required)` : fmt(r.needsYou),
+      `${r.percent}%`,
+    ])));
+  }
+  section.append(el('p', { class: 'muted fineprint', text: table.basis }));
+  host.append(section);
+}
+
+/**
+ * Pair the browser extension (audit A12): a short code to type into the
+ * extension's settings page, instead of copying a key from .env.
+ */
+export function renderExtensionPairing(host) {
+  const section = el('section', { class: 'pairing', 'aria-labelledby': 'pairingTitle' });
+  section.append(el('h3', { id: 'pairingTitle', text: 'Browser extension' }));
+  const out = el('p', { class: 'pairing-code', role: 'status', 'aria-live': 'polite' });
+  const button = el('button', { type: 'button', class: 'small', text: 'Pair the extension' });
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    try {
+      const { code, expiresAt } = await postJson('/api/extension-pairing', {});
+      const minutes = Math.max(1, Math.round((Date.parse(expiresAt) - Date.now()) / 60000));
+      out.replaceChildren(el('b', { class: 'code', text: code }),
+        el('span', { class: 'muted', text: ` Type this into the extension's settings page within ${minutes} minutes. It works once.` }));
+    } catch (err) { out.textContent = err.message; } finally { button.disabled = false; }
+  });
+  section.append(el('p', { class: 'muted', text: 'Open the extension\'s settings page, then show a code here and type it in. No key to copy.' }), button, out);
+  host.append(section);
+}
+
+/**
+ * Sign out everywhere (audit P5): remove the active person's browser profile,
+ * and with it every application-site sign-in on this computer.
+ */
+export function renderSignOut(host) {
+  const section = el('section', { class: 'signout', 'aria-labelledby': 'signOutTitle' });
+  section.append(el('h3', { id: 'signOutTitle', text: 'Application-site sign-ins' }));
+  const out = el('p', { class: 'muted', role: 'status', 'aria-live': 'polite' });
+  const button = el('button', { type: 'button', class: 'small', text: 'Sign out everywhere' });
+  button.addEventListener('click', async () => {
+    if (!window.confirm('Sign out of every application site auto-fill has used on this computer? You will sign in again on the next auto-fill.')) return;
+    button.disabled = true;
+    try {
+      const { removed } = await postJson('/api/profile/sign-out-everywhere', { confirm: true });
+      out.textContent = removed.length ? 'Signed out. The next auto-fill opens a fresh browser.' : 'There were no saved sign-ins to remove.';
+    } catch (err) { out.textContent = err.message; } finally { button.disabled = false; }
+  });
+  section.append(el('p', { class: 'muted', text: 'Auto-fill keeps your sign-ins to sites such as Workday in a browser folder on this computer, unencrypted. This removes them.' }), button, out);
+  host.append(section);
 }
 
 /** LLM usage over the last 30 days (P3-5): tokens per task and model. */
@@ -761,9 +1020,39 @@ export async function renderBackups(host) {
   if (info.available) {
     section.append(el('button', { type: 'button', class: 'small', 'data-action': 'backup-now', text: 'Back up now' }));
   }
-  section.append(el('p', { class: 'muted', text: 'Every job list, with its decisions, notes and applications, is copied daily and checked. '
-    + 'To move everything to another computer in one file, run "npm run export" in the JobAgent folder.' }));
+  section.append(el('p', { class: 'muted', text: 'Every job list, with its decisions, notes and applications, is copied daily and checked.' }));
+  // Everything in one file, to move to another computer (S1: was a command line).
+  const form = el('form', { class: 'export-form', 'data-submit': 'export-bundle' },
+    el('h4', { text: 'Move to another computer' }),
+    el('p', { class: 'muted', text: 'One file with every job list, your settings, answers and master resumes. '
+      + 'It holds your personal data. Your API keys are never included.' }),
+    el('label', { for: 'exportPass', text: 'Passphrase (optional, encrypts the file)' }),
+    el('input', { type: 'password', id: 'exportPass', autocomplete: 'new-password', minlength: '8' }),
+    el('div', { class: 'row-gap' },
+      el('button', { type: 'submit', class: 'small', id: 'exportBtn', text: 'Export everything' }),
+      el('span', { id: 'exportStatus', role: 'status', class: 'muted' })));
+  section.append(form);
   host.append(section);
+}
+
+/** Export everything to one file, then offer it as a download. */
+export async function exportEverything() {
+  const status = $('exportStatus');
+  const passphrase = $('exportPass')?.value ?? '';
+  status.className = 'muted';
+  status.textContent = 'Exporting…';
+  try {
+    const r = await postJson('/api/export/bundle', { passphrase });
+    $('exportPass').value = '';
+    status.textContent = '';
+    status.append(
+      `${r.encrypted ? 'Encrypted. Without the passphrase it cannot be opened. ' : 'Not encrypted: keep it private. '}`,
+      el('a', { href: `/api/export/bundle/${encodeURIComponent(r.name)}`, download: r.name, text: `Download ${r.name}` }),
+      ` (${humanBytes(r.bytes)})`);
+  } catch (err) {
+    status.className = 'st-blocked';
+    status.textContent = err.message;
+  }
 }
 
 /** Back up now, then refresh the sentence. */

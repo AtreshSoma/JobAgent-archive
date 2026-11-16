@@ -44,7 +44,7 @@ describe('fieldFiller.matchOption', () => {
 
 describe('fieldFiller.applyValue', () => {
   it('reduces a truthful H-1B explanation to Yes only for a sponsorship choice', async () => {
-    const answer = 'Yes. I currently hold H-1B status and will require employer sponsorship (transfer).';
+    const answer = 'Yes. I am on an H-1B visa and will need sponsorship to transfer it.';
     const field = {
       kind: 'select',
       selector: '#sponsor',
@@ -147,7 +147,7 @@ describe('fieldFiller.applyValue (combobox/typeahead)', () => {
     const result = await applyValue(
       page,
       { kind: 'combobox', selector: '#sponsor', label: 'Do you require visa sponsorship?' },
-      'Yes. I currently hold H-1B status and will require employer sponsorship (transfer).',
+      'Yes. I am on an H-1B visa and will need sponsorship to transfer it.',
     );
     expect(result.ok).toBe(true);
     expect(page.calls).toContainEqual({
@@ -166,12 +166,12 @@ describe('fieldFiller.applyValue (combobox/typeahead)', () => {
   it('types the value and clicks the best-matching option', async () => {
     const page = makeComboboxPage({
       inputSelector: '#loc',
-      optionMap: { '[role="option"]': ['Morrisville, NC, USA', 'Morristown, NJ, USA'] },
+      optionMap: { '[role="option"]': ['Springfield, NC, USA', 'Springdale, AR, USA'] },
     });
-    const res = await applyValue(page, { kind: 'combobox', selector: '#loc' }, 'Morrisville');
-    expect(res).toMatchObject({ ok: true, action: 'combobox', chosen: 'Morrisville, NC, USA' });
-    expect(page.calls).toContainEqual({ selector: '#loc', action: 'fill', value: 'Morrisville' });
-    expect(page.calls).toContainEqual({ selector: '[role="option"]', action: 'optionClick', index: 0, text: 'Morrisville, NC, USA' });
+    const res = await applyValue(page, { kind: 'combobox', selector: '#loc' }, 'Springfield');
+    expect(res).toMatchObject({ ok: true, action: 'combobox', chosen: 'Springfield, NC, USA' });
+    expect(page.calls).toContainEqual({ selector: '#loc', action: 'fill', value: 'Springfield' });
+    expect(page.calls).toContainEqual({ selector: '[role="option"]', action: 'optionClick', index: 0, text: 'Springfield, NC, USA' });
   });
 
   it('scopes option lookup to the listbox when known', async () => {
@@ -257,15 +257,15 @@ describe('fieldFiller.fillScannedFields', () => {
   it('fills a combobox location field by typing then selecting an option', async () => {
     const page = makeComboboxPage({
       inputSelector: '#loc',
-      optionMap: { '[role="option"]': ['Morrisville, NC, USA'] },
+      optionMap: { '[role="option"]': ['Springfield, NC, USA'] },
     });
-    const cand = { identity: { fullName: 'Ada Lovelace' }, contact: {}, location: { city: 'Morrisville' } };
+    const cand = { identity: { fullName: 'Ada Lovelace' }, contact: {}, location: { city: 'Springfield' } };
     const scanned = [
       { kind: 'combobox', type: 'text', selector: '#loc', label: 'Location (City)', name: 'loc', options: [] },
     ];
     const res = await fillScannedFields(page, scanned, { candidate: cand, screeningAnswers: {} });
     expect(res.filled.map((f) => f.selector)).toContain('#loc');
-    expect(page.calls).toContainEqual({ selector: '#loc', action: 'fill', value: 'Morrisville' });
-    expect(page.calls).toContainEqual({ selector: '[role="option"]', action: 'optionClick', index: 0, text: 'Morrisville, NC, USA' });
+    expect(page.calls).toContainEqual({ selector: '#loc', action: 'fill', value: 'Springfield' });
+    expect(page.calls).toContainEqual({ selector: '[role="option"]', action: 'optionClick', index: 0, text: 'Springfield, NC, USA' });
   });
 });

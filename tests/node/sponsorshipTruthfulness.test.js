@@ -22,13 +22,13 @@ const SCREENING = {
         'require sponsorship', 'need sponsorship', 'visa sponsorship',
         'now or in the future require sponsorship', 'sponsorship to work',
       ],
-      answer: 'Yes. I currently hold H-1B status and will require employer sponsorship (transfer).',
+      answer: 'Yes. I am on an H-1B visa and will need sponsorship to transfer it.',
     },
     {
       id: 'work_authorization',
       type: 'text',
       patterns: ['work authorization', 'authorized to work', 'legally authorized'],
-      answer: 'Authorized to work in the US on H-1B; requires employer transfer sponsorship.',
+      answer: 'Authorized to work in the US on H-1B; will need the visa transferred with sponsorship.',
     },
   ],
 };

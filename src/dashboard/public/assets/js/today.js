@@ -16,6 +16,7 @@ import { freshnessOf } from './format.js';
 import { loadBoard } from './board.js';
 import { applyAppsLayout, openApplicationDetail } from './workspace.js';
 import { signInStrip } from './signin.js';
+import { setupCard } from './setup.js';
 
 /* ─────────────────────────── Today ───────────────────────────
  * The landing view: at most ten jobs, each with the ONE next action that
@@ -163,7 +164,7 @@ export const BROWSER_NOTICE = {
   code: 'browser_unavailable',
   severity: 'error',
   message: 'Auto-fill can’t start: the Playwright browser isn’t installed.',
-  fix: 'Run `npx playwright install chromium` in the JobAgent folder, then retry.',
+  fix: 'Close JobAgent and open it again from its launcher, and say yes when it offers to download the browser (about 150 MB). Then retry.',
 };
 export const BROWSER_MISSING = /Executable doesn't exist|playwright install/i;
 
@@ -193,8 +194,12 @@ export function setSystemNotices(list) {
   }
   state.systemNotices = notices;
   const unavailable = notices.some((n) => n.code === 'browser_unavailable');
-  const changed = unavailable !== state.browserUnavailable;
+  // The setup card gates Prepare, so its progress is part of what the open job
+  // shows: a fixed value must drop out of that box, not wait for a click.
+  const templated = JSON.stringify(notices.find((n) => n.code === 'profile_placeholders')?.setup ?? null);
+  const changed = unavailable !== state.browserUnavailable || templated !== state.templatedItems;
   state.browserUnavailable = unavailable;
+  state.templatedItems = templated;
   renderNotices();
   renderSetupChecklist();
   if (changed) {
@@ -231,24 +236,27 @@ export function renderNotices() {
   const host = $('systemNotices');
   host.textContent = '';
   for (const notice of state.systemNotices ?? []) {
+    // Unfinished setup is progress, not an error: one line, steps on request.
+    if (notice.code === 'profile_placeholders' && notice.setup) { host.append(setupCard(notice)); continue; }
     host.append(el('div', { class: `notice ${notice.severity === 'error' ? 'is-error' : 'is-warn'}`, role: 'status' },
       el('span', { class: 'notice-mark', 'aria-hidden': 'true', text: '!' }),
       el('div', { class: 'notice-body' },
         el('b', { text: notice.message }),
-        notice.fix ? fixLine(notice.fix) : null),
-      NOTICE_ACTION[notice.code] ? el('div', { class: 'notice-actions' },
-        ...NOTICE_ACTION[notice.code].map(([action, label], i) => el('button', {
-          type: 'button', class: i === 0 ? 'small primary' : 'small', 'data-action': action, text: label,
-        }))) : null));
+        notice.fix ? fixLine(notice.fix) : null)));
   }
 }
 
-/** Notice code -> the dialog that resolves it. */
-export const NOTICE_ACTION = {
-  // The resume already states every value the template left behind, so the
-  // one-click fix comes first; the editor stays for anything it cannot know.
-  profile_placeholders: [['fill-profile-from-resume', 'Fill from my resume'], ['open-profile', 'Edit profile…']],
-};
+/**
+ * The template-text notice while it blocks Prepare, else null.
+ *
+ * Prepare refuses a profile that still holds template text (preparePacket's
+ * placeholder guard). The click used to start a run that failed in the
+ * background and left only "Prepared 0 packet(s)", so it looked like nothing
+ * happened. Controls read this to stay off and to say what to fix instead.
+ */
+export function prepareBlockedNotice() {
+  return (state.systemNotices ?? []).find((n) => n.code === 'profile_placeholders') ?? null;
+}
 
 /** Why an Auto-fill control is unavailable, or null when it can be used. */
 export function autofillBlockedReason() {
@@ -485,7 +493,7 @@ export const NOTICE_CHECK = { browser_unavailable: 'browser', profile_placeholde
 
 /** Check id -> the control that fixes it. */
 export const SETUP_FIX = {
-  browser: { kind: 'copy' },
+  browser: { kind: 'text' },
   profile: { action: 'open-profile', label: 'Open application profile' },
   'profile-placeholders': { action: 'open-profile', label: 'Open application profile' },
   'profile-active': { action: 'open-master', label: 'Open master resume' },
@@ -496,6 +504,8 @@ export async function loadHealthChecks() {
   try { state.health = await api('/api/health'); } catch { return; }
   setSystemNotices(state.today?.systemNotices ?? []);
 }
+
+const joinLabels = (items) => (items.length < 2 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`);
 
 export function renderSetupChecklist() {
   const host = $('setupChecklist');
@@ -510,13 +520,23 @@ export function renderSetupChecklist() {
   const list = el('ul', { class: 'setup-list' });
   for (const check of failing) {
     const fix = SETUP_FIX[check.id] ?? { action: 'open-health', label: 'See details' };
+    // A check that names its empty fields gets them in words, and its button
+    // opens the profile AT them, each marked until it is filled.
+    const fields = Array.isArray(check.fields) ? check.fields : [];
+    const detail = fields.length ? `Missing: ${joinLabels(fields.map((f) => f.label))}` : check.detail;
     const item = el('li', {},
       el('span', { class: 'setup-mark', 'aria-hidden': 'true' }),
       el('div', { class: 'setup-text' },
         el('b', { text: check.label ?? check.id }),
-        check.detail ? el('div', { class: 'faint clamp-2', title: check.detail, text: check.detail }) : null,
-        fix.kind === 'copy' && check.fix ? fixLine(check.fix) : null));
-    if (fix.action) {
+        detail ? el('div', { class: 'faint clamp-2', title: detail, text: detail }) : null,
+        fix.kind === 'text' ? el('div', { class: 'faint', text: 'Close JobAgent and open it again from its launcher, and say yes when it offers to download the browser (about 150 MB). Then retry.' }) : null));
+    if (fix.action === 'open-profile' && fields.length) {
+      item.append(el('button', {
+        type: 'button', class: 'small primary', 'data-action': 'setup-fix', 'data-editor': 'details',
+        'data-field': fields[0].path, 'data-fields': fields.map((f) => f.path).join(' '),
+        text: fields.length === 1 ? `Fill in ${fields[0].label}` : `Fill in ${fields.length} fields`,
+      }));
+    } else if (fix.action) {
       item.append(el('button', { type: 'button', class: 'small', 'data-action': fix.action, text: fix.label }));
     }
     list.append(item);

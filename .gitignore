@@ -92,12 +92,8 @@ logs/*
 !logs/.gitkeep
 !logs/README.md
 
-# --- Generated study exports (rebuild with `npm run prep:pdf`) ---
-interview-prep/Data-Engineer-Interview-Prep.md
-interview-prep/Data-Engineer-Interview-Prep.pdf
-
 # --- Reports (generated output at the repo root ONLY — never src/reports/) ---
-# Published reviews live in docs/audits/; everything under reports/ is runtime output.
+# Everything under reports/ is runtime output.
 /reports/*
 
 # --- Playwright ---

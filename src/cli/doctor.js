@@ -347,15 +347,49 @@ export async function runDoctor({ root = PROJECT_ROOT, env = process.env, deps =
     checks.push(makeCheck('config', 'Configuration', SEVERITY.FAIL, err.message, hint));
   }
 
+  /* ── Does the vocabulary cover the postings? (audit D4) ──────────────── */
+  if (config) {
+    try {
+      const { openDatabase } = await import('../logging/db.js');
+      const { scoringVocabulary } = await import('../scoring/scorer.js');
+      const cov = await import('../scoring/vocabularyCoverage.js');
+      const db = openDatabase({ path: join(root, 'data', 'applied_jobs.db') });
+      let texts = [];
+      try { texts = db.sampleDescriptions({ limit: cov.COVERAGE_SAMPLE }); } finally { db.close(); }
+      const vocabulary = scoringVocabulary(config.scoring ?? {});
+      if (texts.length < cov.COVERAGE_MIN_SAMPLE || !vocabulary.length) {
+        checks.push(makeCheck('vocabulary', 'Skills JobAgent looks for', SEVERITY.PASS,
+          `not enough saved postings yet to measure (${texts.length} with a full description)`));
+      } else {
+        const r = cov.vocabularyCoverage({ vocabulary, texts });
+        if (r.percent >= cov.COVERAGE_WARN_BELOW) {
+          checks.push(makeCheck('vocabulary', 'Skills JobAgent looks for', SEVERITY.PASS,
+            `${r.percent}% of ${r.sampled} saved postings mention five or more of the ${vocabulary.length} skills it looks for`));
+        } else {
+          const asked = cov.proposeTerms({ texts, vocabulary }).map((t) => `${t.phrase} (${t.postings})`);
+          checks.push(makeCheck('vocabulary', 'Skills JobAgent looks for', SEVERITY.WARN,
+            `Only ${r.percent}% of ${r.sampled} saved postings mention five or more of the ${vocabulary.length} skills it looks for, `
+            + 'so many jobs may score alike.'
+            + (asked.length ? ` Postings keep asking for: ${asked.join(', ')}.` : ''),
+            'Open a job, find Also asked for, and choose Look for this skill on the real skills.'));
+        }
+      }
+    } catch { /* measuring coverage must never stop the doctor */ }
+  }
+
   if (config) {
     const required = requiredProfileGaps(config.candidate);
     if (required.length === 0) {
       checks.push(makeCheck('profile', 'Candidate profile (required fields)', SEVERITY.PASS,
         'all required fields present'));
     } else {
-      checks.push(makeCheck('profile', 'Candidate profile (required fields)', SEVERITY.FAIL,
-        `missing: ${required.map((g) => `${g.label} (${g.path})`).join(', ')}`,
-        'Add the missing value(s) to config/candidate.json. Never guess — only enter true information.'));
+      checks.push({
+        ...makeCheck('profile', 'Candidate profile (required fields)', SEVERITY.FAIL,
+          `missing: ${required.map((g) => `${g.label} (${g.path})`).join(', ')}`,
+          'Add the missing value(s) to config/candidate.json. Never guess — only enter true information.'),
+        // The paths, so the dashboard can open its form at exactly these boxes.
+        fields: required.map((g) => ({ path: g.path, label: g.label })),
+      });
     }
 
     // Presence is not plausibility. Every required field can be filled and every

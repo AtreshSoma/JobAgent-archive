@@ -129,7 +129,6 @@ describe('header: three menus and a theme toggle', () => {
     for (const a of ['open-master', 'open-profile', 'open-documents', 'open-keys', 'toggle-theme']) {
       expect(menu('accountMenu'), a).toContain(`data-action="${a}"`);
     }
-    expect(menu('accountMenu')).toContain('href="/learn/"');
   });
 
   it('wires every menu trigger into the menu-button pattern', () => {

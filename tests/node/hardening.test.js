@@ -151,13 +151,6 @@ describe('dashboard server hardening', () => {
     expect(body.limit).toBe(2);
   });
 
-  it('serves the interview-prep entry point at both canonical local URLs', async () => {
-    const canonical = await rawRequest('/learn/');
-    const explicit = await rawRequest('/learn/index.html');
-    expect(canonical.status).toBe(200);
-    expect(explicit.status).toBe(200);
-  });
-
   it('bounds batch operations to prevent a single request monopolizing the dashboard', async () => {
     const ids = Array.from({ length: 201 }, (_, i) => `job-${i}`);
     const result = await post('/api/assist-batch', { jobIds: ids });

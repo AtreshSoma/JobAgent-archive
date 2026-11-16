@@ -28,7 +28,10 @@
 
 html {
   overflow-x: clip;
-  scroll-behavior: smooth;
+  /* Not smooth here: the scroll library measures the page by jumping the scroll position, and
+     CSS smoothing turns that jump into a glide, so every scene would be measured in the wrong
+     place after a resize. In-page links glide on their own (main.js, glide). */
+  scroll-behavior: auto;
   scroll-padding-top: calc(var(--top-h) + var(--space-md));
   -webkit-text-size-adjust: 100%;
   --page-bg: var(--color-paper);
@@ -84,6 +87,8 @@ body.ex {
   font-weight: 650; text-decoration: none;
 }
 .ex-skip:focus { transform: none; }
+/* Out of sight until it is focused, including in a full-page capture of the page. */
+.ex-skip:not(:focus) { clip-path: inset(50%); }
 
 /* Line colour by attribute, so any element on a line can ask for `--line`. */
 [data-line="find"] { --line: var(--line-find); --line-ink: var(--line-find-ink); --line-tint: var(--tint-find); }
@@ -487,6 +492,9 @@ body.ex {
 
 /* ───────────────────────── 6. footer ───────────────────────── */
 
+/* The footer is in the document before the page is built; it joins the page once the page is there, so nothing jumps. */
+html:not([data-ready]) .ex-foot { display: none; }
+
 .ex-foot { border-top: 2px solid var(--color-ink); margin: 0 var(--page-pad); padding: var(--space-xl) 0 var(--space-2xl); display: grid; gap: var(--space-sm); }
 .ex-foot-line { font-family: var(--font-display); font-stretch: var(--wdth-station); font-weight: 820; font-size: var(--text-2xl); letter-spacing: -.035em; line-height: 1; }
 .ex-foot-facts { display: flex; flex-wrap: wrap; gap: var(--space-3xs) var(--space-lg); color: var(--color-ink-2); font-size: var(--text-sm); }
@@ -606,7 +614,7 @@ body.ex {
 }
 .ex-node-dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid currentColor; flex: none; transition: background-color var(--dur-short) var(--ease-out), transform var(--dur-short) var(--ease-out); }
 .ex-node-short { display: none; }
-.ex-node-flag { font-size: var(--text-xs); font-weight: 620; background: none !important; padding: 0; border: 0; opacity: .8; }
+.ex-node-flag { font-size: var(--text-xs); font-weight: 620; background: none !important; padding: 0; border: 0; }
 .ex-node-flag::before { display: none; }
 .ex .ex-node[data-rel="selected"] { background: var(--color-ink); border-color: var(--color-ink); color: var(--color-on-ink); }
 .ex-node[data-rel="selected"] .ex-node-dot { background: currentColor; }
@@ -747,6 +755,19 @@ body.ex {
 .ex-table thead th { border-top: 0; font-size: var(--text-xs); color: var(--color-ink-3); font-weight: 720; }
 .ex-table tbody th { font-weight: 720; white-space: nowrap; }
 .ex-rowgroup, .ex-table tbody tr:has(.ex-rowgroup) td { border-top-color: var(--color-rule-strong); }
+/* A phone: each row stands as a block, the part first, so nothing has to be scrolled sideways. */
+@media (max-width: 640px) {
+  .ex-tablewrap { overflow: visible; }
+  .ex-table { min-width: 0; }
+  .ex-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .ex-table tr, .ex-table th, .ex-table td { display: block; }
+  .ex-table tr { padding: var(--space-xs) 0; border-top: var(--rule-hair) solid var(--color-rule); }
+  .ex-table th, .ex-table td { padding: 2px 0; border-top: 0; }
+  .ex-table td:last-child { color: var(--color-ink-2); }
+}
+@media (pointer: coarse) {
+  .ex .ex-flow-step, .ex-toc a, .ex .ex-node { min-height: 44px; }
+}
 .ex-kind { font-size: var(--text-xs); font-weight: 680; color: var(--color-ink-2); white-space: nowrap; }
 .ex-kind-core { color: var(--line-apply-ink); }
 .ex-kind-optional { color: var(--line-find-ink); }
@@ -870,7 +891,6 @@ html[data-here="signal"] { --here-c: var(--signal); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto; }
   .ex *, .ex *::before, .ex *::after, .ex details::details-content { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; transition-delay: 0s !important; }
   /* The scroll-linked rule is a position readout, not motion: it keeps following the page. */
   body.ex .ex-top::after { animation-duration: auto !important; }
@@ -901,10 +921,6 @@ html[data-here="signal"] { --here-c: var(--signal); }
   .ex-sheets { grid-template-columns: minmax(0, 1fr); }
   .ex-facts { grid-template-columns: minmax(0, 1fr); }
   .ex-facts > div + div { border-top: var(--rule-hair) solid var(--color-rule); }
-}
-
-@media (max-width: 760px) {
-  :root { --wdth-display: 100%; --wdth-station: 106%; }
   /* The route stands up: the same seven stops, read downward. */
   .ex-route { --row: 52px; --rule-line: 6px; padding-top: 0; }
   .ex-stop-fact { display: none; }
@@ -919,7 +935,10 @@ html[data-here="signal"] { --here-c: var(--signal); }
   .ex-stop-signal { grid-template-columns: auto minmax(0, 1fr); padding-left: 4px; }
   .ex-route-token { width: var(--row); height: var(--row); transform: translateY(calc(var(--at, 0) * 100%)); }
   .ex .ex-route-again { margin-left: 0; }
+}
 
+@media (max-width: 760px) {
+  :root { --wdth-display: 100%; --wdth-station: 106%; }
   .ex-bars { grid-template-columns: minmax(0, 1fr); }
   .ex-board-row { grid-template-columns: minmax(0, 1fr); gap: var(--space-3xs); }
   .ex-board-out { text-align: left; }
@@ -932,19 +951,22 @@ html[data-here="signal"] { --here-c: var(--signal); }
   .ex-routes { grid-template-columns: minmax(0, 1fr); margin-left: 0; }
   .ex-notes-list { padding-left: 1.6rem; }
   .ex-rule-body, .ex-rule .ex-files { margin-left: 0; }
-  .ex-top-actions .ex-btn { display: none; }
   .ex-top-actions { flex: 0 0 auto; }
 }
 
 /* On a phone the route and the outcome line stand up, so they draw downward,
    and nothing slides in sideways: it all rises. */
-@media (max-width: 760px) and (prefers-reduced-motion: no-preference) {
+@media (max-width: 900px) and (prefers-reduced-motion: no-preference) {
   html[data-ready]:not([data-intro="done"]) .ex-stop::before { transform-origin: center top; animation-name: ex-rail-y; }
 }
 
-@media (max-width: 420px) {
+/* The header takes two rows where one would squeeze it: the brand and the dashboard above, the two views below. */
+@media (max-width: 640px) {
   .ex-top { flex-wrap: wrap; row-gap: 0; padding-top: var(--space-2xs); }
-  .ex-nav { order: 3; flex: 1 0 100%; min-height: 40px; }
+  .ex-brand { flex: 1 1 auto; }
+  .ex-nav { order: 3; flex: 1 0 100%; min-height: 44px; }
+}
+@media (max-width: 420px) {
   .ex-bar { grid-template-columns: minmax(0, 8rem) minmax(0, 1fr) 4.2rem; gap: var(--space-xs); }
   /* Where a field's answer came from drops under its label instead of squeezing it. */
   .ex-field { grid-template-columns: minmax(0, 1fr); }
